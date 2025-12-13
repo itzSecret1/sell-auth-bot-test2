@@ -230,10 +230,10 @@ export class Bot {
                 console.log(`[BOT] 📦 Registering batch ${batchIndex + 1}/${batches.length} (${batch.length} commands)...`);
                 
                 try {
-                  // Agregar timeout para evitar que se quede atascado
+                  // Agregar timeout para evitar que se quede atascado (60s para lotes grandes)
                   const registerPromise = rest.put(route, { body: batch });
                   const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error(`Batch ${batchIndex + 1} timeout (20s)`)), 20000)
+                    setTimeout(() => reject(new Error(`Batch ${batchIndex + 1} timeout (60s)`)), 60000)
                   );
                   
                   const registered = await Promise.race([registerPromise, timeoutPromise]);
@@ -266,36 +266,61 @@ export class Bot {
               console.warn(`[BOT] ⚠️  Error deleting existing commands: ${e.message}`);
             }
 
-            await new Promise(r => setTimeout(r, 2000)); // Esperar más tiempo después de eliminar
+            await new Promise(r => setTimeout(r, 3000)); // Esperar más tiempo después de eliminar
 
             let success = 0;
             let failed = 0;
             const totalCommands = this.slashCommands.length;
+            const fallbackStartTime = Date.now();
             
             console.log(`[BOT] 📝 Registering ${totalCommands} command(s) individually in ${guild.name}...`);
+            console.log(`[BOT] ⏱️  This may take a while (estimated: ${Math.ceil(totalCommands * 0.6)} seconds)...`);
             
             for (let i = 0; i < this.slashCommands.length; i++) {
               const cmd = this.slashCommands[i];
+              const startCmdTime = Date.now();
+              
               try {
-                await guild.commands.create(cmd);
+                // Agregar timeout individual para cada comando
+                const createPromise = guild.commands.create(cmd);
+                const cmdTimeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (10s)`)), 10000)
+                );
+                
+                await Promise.race([createPromise, cmdTimeoutPromise]);
                 success++;
-                if ((i + 1) % 10 === 0) {
-                  console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered...`);
+                
+                const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
+                if ((i + 1) % 5 === 0 || i === 0) {
+                  console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (${cmdTime}s per command)...`);
                 }
+                
                 // Rate limit: esperar más tiempo entre comandos
-                await new Promise(r => setTimeout(r, 500));
+                await new Promise(r => setTimeout(r, 600));
               } catch (err) {
                 failed++;
-                console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name}: ${err.message}`);
+                const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
+                console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message}`);
+                
                 // Si es rate limit, esperar más tiempo
-                if (err.code === 50035 || err.status === 429) {
-                  console.log(`[BOT] ⏳ Rate limited, waiting 5 seconds...`);
-                  await new Promise(r => setTimeout(r, 5000));
+                if (err.code === 50035 || err.status === 429 || err.message.includes('rate limit')) {
+                  console.log(`[BOT] ⏳ Rate limited, waiting 10 seconds...`);
+                  await new Promise(r => setTimeout(r, 10000));
+                  // Reintentar el comando
+                  i--;
+                  continue;
+                }
+                
+                // Si es timeout, continuar con el siguiente
+                if (err.message.includes('timeout')) {
+                  console.warn(`[BOT] ⏱️  Command ${cmd.name} timed out, skipping...`);
+                  continue;
                 }
               }
             }
             
-            console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (fallback method)`);
+            const fallbackTime = ((Date.now() - fallbackStartTime) / 1000).toFixed(2);
+            console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (fallback method, took ${fallbackTime}s)`);
           }
         } catch (error) {
           console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, error.message);
