@@ -280,42 +280,72 @@ export class Bot {
               const cmd = this.slashCommands[i];
               const startCmdTime = Date.now();
               
+              // Validar comando antes de intentar registrarlo
               try {
-                // Agregar timeout individual para cada comando
-                const createPromise = guild.commands.create(cmd);
-                const cmdTimeoutPromise = new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (10s)`)), 10000)
-                );
-                
-                await Promise.race([createPromise, cmdTimeoutPromise]);
-                success++;
-                
-                const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
-                if ((i + 1) % 5 === 0 || i === 0) {
-                  console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (${cmdTime}s per command)...`);
+                // Verificar que el comando tenga estructura válida
+                if (!cmd || !cmd.name || !cmd.description) {
+                  console.warn(`[BOT] ⚠️  Skipping invalid command at index ${i}`);
+                  failed++;
+                  continue;
                 }
                 
-                // Rate limit: esperar más tiempo entre comandos
-                await new Promise(r => setTimeout(r, 600));
+                // Intentar registrar con timeout más corto pero con retry
+                let registered = false;
+                let retries = 0;
+                const maxRetries = 2;
+                
+                while (!registered && retries <= maxRetries) {
+                  try {
+                    const createPromise = guild.commands.create(cmd);
+                    const cmdTimeoutPromise = new Promise((_, reject) => 
+                      setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (8s)`)), 8000)
+                    );
+                    
+                    await Promise.race([createPromise, cmdTimeoutPromise]);
+                    registered = true;
+                    success++;
+                    
+                    const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
+                    if ((i + 1) % 3 === 0 || i === 0 || i === totalCommands - 1) {
+                      console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (${cmdTime}s)...`);
+                    }
+                    
+                    // Esperar entre comandos para evitar rate limits
+                    await new Promise(r => setTimeout(r, 700));
+                  } catch (err) {
+                    retries++;
+                    const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
+                    
+                    // Si es rate limit, esperar y reintentar
+                    if (err.code === 50035 || err.status === 429 || err.message.includes('rate limit')) {
+                      const waitTime = 5000 + (retries * 2000);
+                      console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s (retry ${retries}/${maxRetries})...`);
+                      await new Promise(r => setTimeout(r, waitTime));
+                      continue;
+                    }
+                    
+                    // Si es timeout y aún tenemos reintentos, intentar de nuevo
+                    if (err.message.includes('timeout') && retries < maxRetries) {
+                      console.warn(`[BOT] ⏱️  Command ${cmd.name} timed out, retrying (${retries}/${maxRetries})...`);
+                      await new Promise(r => setTimeout(r, 2000));
+                      continue;
+                    }
+                    
+                    // Si llegamos aquí, el comando falló definitivamente
+                    failed++;
+                    console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message}`);
+                    break;
+                  }
+                }
+                
+                if (!registered) {
+                  console.warn(`[BOT] ❌ Command ${cmd.name} failed after ${maxRetries} retries, skipping...`);
+                }
               } catch (err) {
                 failed++;
-                const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
-                console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message}`);
-                
-                // Si es rate limit, esperar más tiempo
-                if (err.code === 50035 || err.status === 429 || err.message.includes('rate limit')) {
-                  console.log(`[BOT] ⏳ Rate limited, waiting 10 seconds...`);
-                  await new Promise(r => setTimeout(r, 10000));
-                  // Reintentar el comando
-                  i--;
-                  continue;
-                }
-                
-                // Si es timeout, continuar con el siguiente
-                if (err.message.includes('timeout')) {
-                  console.warn(`[BOT] ⏱️  Command ${cmd.name} timed out, skipping...`);
-                  continue;
-                }
+                console.error(`[BOT] ❌ Unexpected error registering ${cmd.name}:`, err.message);
+                // Continuar con el siguiente comando
+                continue;
               }
             }
             
