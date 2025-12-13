@@ -898,6 +898,63 @@ export class Bot {
           return;
         }
         
+        // Detectar invoice con formato específico (ej: 3bcf919f0e26c-0000008525997)
+        const invoiceMatch = this.detectInvoice(content);
+        
+        // Detectar servicios y cantidades mencionados (Netflix x1, Hulu, etc.)
+        const serviceInfo = this.detectServiceAndQuantity(content);
+        
+        // Si detecta invoice + servicio + cantidad, renombrar ticket
+        if (invoiceMatch && serviceInfo.service && serviceInfo.quantity) {
+          try {
+            const ticketId = ticket.id;
+            const serviceName = serviceInfo.service.toLowerCase();
+            const quantity = serviceInfo.quantity;
+            const newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
+            
+            await message.channel.setName(newName);
+            
+            console.log(`[TICKET] Ticket ${ticketId} renombrado a "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
+            
+            // Si hay foto, también procesar replace-message
+            if (hasImages) {
+              setTimeout(async () => {
+                try {
+                  const { default: replaceMessageCommand } = await import('../commands/replace-message.js');
+                  
+                  const fakeInteraction = {
+                    options: {
+                      getChannel: () => message.channel,
+                      getString: () => null
+                    },
+                    guild: message.guild,
+                    channel: message.channel,
+                    user: message.client.user,
+                    member: message.guild.members.me,
+                    editReply: async (data) => {
+                      await message.channel.send({
+                        content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nService: ${serviceName} x${quantity}\nProof: Attached\n\nThe staff will process your replacement shortly.`
+                      });
+                    },
+                    deferReply: async () => {},
+                    reply: async () => {}
+                  };
+                  
+                  await replaceMessageCommand.execute(fakeInteraction, this.api);
+                  
+                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detectado, replace-message ejecutado automáticamente`);
+                } catch (error) {
+                  console.error('[AUTO-REPLACE] Error:', error);
+                }
+              }, 1000);
+            }
+            
+            return; // Salir después de procesar invoice + servicio
+          } catch (renameError) {
+            console.error('[TICKET] Error al renombrar ticket:', renameError);
+          }
+        }
+        
         // Si el usuario especifica una cuenta (detectar respuestas como "this account", "my account", o menciona algo específico)
         const accountSpecified = this.detectAccountSpecification(content);
         if (accountSpecified && !ticket.accountSpecified) {
@@ -909,9 +966,6 @@ export class Bot {
             
             // Marcar que ya se especificó la cuenta
             ticket.accountSpecified = true;
-            const { saveTickets } = await import('../utils/TicketManager.js');
-            // Necesitamos acceso a saveTickets, pero está en el scope privado
-            // Por ahora solo renombramos
             
             console.log(`[TICKET] Ticket ${ticketId} renombrado a "${newName}" después de especificar cuenta`);
           } catch (renameError) {
@@ -920,7 +974,7 @@ export class Bot {
         }
         
         // Si hay fotos pero no se detecta invoice, pedir invoice
-        if (hasImages && !this.detectInvoice(content)) {
+        if (hasImages && !invoiceMatch) {
           const lastMessages = await message.channel.messages.fetch({ limit: 5 });
           const alreadyAsked = lastMessages.some(msg => 
             msg.author.bot && 
@@ -935,18 +989,12 @@ export class Bot {
           return;
         }
         
-        // Detectar invoice (combinación de números y letras)
-        const invoiceMatch = this.detectInvoice(content);
-        
-        // Si detecta invoice + foto, ejecutar automáticamente replace-message
-        if (invoiceMatch && hasImages) {
-          // Esperar un poco para asegurar que el mensaje se procesó
+        // Si detecta invoice + foto pero sin servicio específico, ejecutar replace-message genérico
+        if (invoiceMatch && hasImages && !serviceInfo.service) {
           setTimeout(async () => {
             try {
-              // Simular ejecución del comando replace-message
               const { default: replaceMessageCommand } = await import('../commands/replace-message.js');
               
-              // Crear una interacción simulada para el comando
               const fakeInteraction = {
                 options: {
                   getChannel: () => message.channel,
@@ -957,7 +1005,6 @@ export class Bot {
                 user: message.client.user,
                 member: message.guild.members.me,
                 editReply: async (data) => {
-                  // Enviar mensaje de confirmación
                   await message.channel.send({
                     content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nProof: Attached\n\nThe staff will process your replacement shortly.`
                   });
@@ -995,11 +1042,13 @@ export class Bot {
 
   detectInvoice(text) {
     // Detectar patrones comunes de invoice:
+    // - Formato con guión: 3bcf919f0e26c-0000008525997
     // - INV-12345
     // - Invoice: ABC123
     // - #12345
     // - Combinaciones de letras y números (mínimo 5 caracteres)
     const patterns = [
+      /\b([a-z0-9]{8,}-[0-9]{10,})\b/i, // Formato: abc123def-1234567890
       /(?:invoice|inv)[\s:]*([a-z0-9-]{5,})/i,
       /#([a-z0-9]{5,})/i,
       /\b([a-z]{2,}\d{3,}|\d{3,}[a-z]{2,})\b/i
@@ -1013,5 +1062,51 @@ export class Bot {
     }
     
     return null;
+  }
+
+  detectServiceAndQuantity(text) {
+    // Servicios comunes
+    const services = ['netflix', 'hulu', 'disney', 'disney+', 'spotify', 'hbo', 'hbo max', 'paramount', 'prime', 'amazon prime', 'crunchyroll', 'youtube', 'youtube premium'];
+    
+    let detectedService = null;
+    let quantity = 1; // Por defecto
+    
+    // Buscar servicios mencionados
+    for (const service of services) {
+      const serviceRegex = new RegExp(`\\b${service}\\b`, 'i');
+      if (serviceRegex.test(text)) {
+        detectedService = service.replace(/\s+/g, '').replace('+', 'plus'); // Normalizar nombre
+        break;
+      }
+    }
+    
+    // Buscar cantidad (x1, x2, 1 acc, 2 acc, etc.)
+    const quantityPatterns = [
+      /x\s*(\d+)/i,           // x1, x2, x 1, etc.
+      /(\d+)\s*acc/i,          // 1 acc, 2 acc, etc.
+      /(\d+)\s*account/i,      // 1 account, 2 account, etc.
+      /\b(\d+)\s*(?:netflix|hulu|disney|spotify|hbo|paramount|prime|crunchyroll|youtube)\b/i // 1 netflix, 2 hulu, etc.
+    ];
+    
+    for (const pattern of quantityPatterns) {
+      const match = text.match(pattern);
+      if (match) {
+        quantity = parseInt(match[1]) || 1;
+        break;
+      }
+    }
+    
+    // Detectar "only" o "just" seguido de cantidad
+    if (/only|just/i.test(text)) {
+      const onlyMatch = text.match(/(?:only|just)\s+(\d+)/i);
+      if (onlyMatch) {
+        quantity = parseInt(onlyMatch[1]) || 1;
+      }
+    }
+    
+    return {
+      service: detectedService,
+      quantity: quantity
+    };
   }
 }
