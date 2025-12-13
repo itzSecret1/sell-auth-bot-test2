@@ -91,32 +91,45 @@ export default {
       // Restaurar vouches
       writeFileSync(VOUCHES_FILE, JSON.stringify(backupData, null, 2), 'utf-8');
 
+      // Crear lista de vouches restaurados (primeros 20)
+      const vouchesList = backupData.vouches?.slice(0, 20).map((v, idx) => {
+        const vouchInfo = v.message ? 
+          `#${v.id}: ${v.message.substring(0, 50)}${v.message.length > 50 ? '...' : ''} (${v.stars || v.rating || 'N/A'}⭐)` :
+          `#${v.id}: ${v.product || 'N/A'} ${v.value || ''} (${v.stars || v.rating || 'N/A'}⭐)`;
+        return `${idx + 1}. ${vouchInfo}`;
+      }).join('\n') || 'No vouches found';
+
       const embed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setTitle('✅ Vouches Restored')
         .addFields(
           {
-            name: '📦 Vouches Restored',
+            name: '📦 Total Vouches Restored',
             value: vouchesCount.toString(),
             inline: true
           },
           {
             name: '📁 Backup File',
             value: backupFileName,
+            inline: true
+          },
+          {
+            name: '📅 Restore Date',
+            value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
+            inline: true
+          },
+          {
+            name: '📋 Restored Vouches (First 20)',
+            value: vouchesList.length > 1024 ? vouchesList.substring(0, 1020) + '...' : vouchesList,
             inline: false
           },
           {
             name: '💾 Pre-Restore Backup',
             value: `Saved as: pre_restore_${timestamp}.json`,
             inline: false
-          },
-          {
-            name: '📅 Restore Date',
-            value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
-            inline: true
           }
         )
-        .setFooter({ text: 'Vouches restored successfully' })
+        .setFooter({ text: vouchesCount > 20 ? `Showing first 20 of ${vouchesCount} vouches` : 'Vouches restored successfully' })
         .setTimestamp();
 
       await interaction.editReply({

@@ -458,34 +458,57 @@ export class Bot {
 
     // Cerrar ticket
     if (customId.startsWith('ticket_close_')) {
-      // Verificar que el usuario tenga rol de staff o admin
+      const ticketId = customId.replace('ticket_close_', '');
+      const ticket = TicketManager.getTicket(ticketId);
+      
+      if (!ticket) {
+        await interaction.reply({
+          content: '❌ Ticket not found',
+          ephemeral: true
+        });
+        return;
+      }
+
+      // Verificar que el usuario tenga rol de staff/admin O sea el creador del ticket
       const guildConfig = GuildConfig.getConfig(interaction.guild.id);
       const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
       const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
       
       const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
       const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      const isTicketCreator = ticket.userId === interaction.user.id;
       
-      if (!hasStaffRole && !hasAdminRole) {
+      if (!hasStaffRole && !hasAdminRole && !isTicketCreator) {
         await interaction.reply({
-          content: '❌ Solo el staff puede cerrar tickets',
+          content: '❌ Only staff or the ticket creator can close tickets',
           ephemeral: true
         });
         return;
       }
 
-      const ticketId = customId.replace('ticket_close_', '');
-      const ticket = TicketManager.getTicket(ticketId);
-      
-      if (!ticket) {
-        await interaction.reply({
-          content: '❌ Ticket no encontrado',
-          ephemeral: true
-        });
+      // Si es el creador del ticket, cerrar directamente sin reviews
+      if (isTicketCreator && !hasStaffRole && !hasAdminRole) {
+        // Mostrar modal para razón (obligatoria)
+        const modal = new ModalBuilder()
+          .setCustomId(`ticket_close_modal_${ticketId}`)
+          .setTitle('Close Ticket');
+
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('close_reason')
+          .setLabel('Reason for closing (required)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Explain why you are closing this ticket...')
+          .setRequired(true)
+          .setMaxLength(500);
+
+        const actionRow = new ActionRowBuilder().addComponents(reasonInput);
+        modal.addComponents(actionRow);
+
+        await interaction.showModal(modal);
         return;
       }
 
-      // Verificar si necesita razón
+      // Si es staff/admin, verificar si necesita razón
       const member = interaction.member;
       const needsReason = hasStaffRole; // Solo staff necesita razón, admin no
 
@@ -493,13 +516,13 @@ export class Bot {
         // Mostrar modal para razón
         const modal = new ModalBuilder()
           .setCustomId(`ticket_close_modal_${ticketId}`)
-          .setTitle('Cerrar Ticket');
+          .setTitle('Close Ticket');
 
         const reasonInput = new TextInputBuilder()
           .setCustomId('close_reason')
-          .setLabel('Razón del cierre (obligatorio)')
+          .setLabel('Reason for closing (required)')
           .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Explica por qué se cierra este ticket...')
+          .setPlaceholder('Explain why you are closing this ticket...')
           .setRequired(true)
           .setMaxLength(500);
 
@@ -560,7 +583,7 @@ export class Bot {
 
       if (!closeReason || closeReason.trim().length === 0) {
         await interaction.reply({
-          content: '❌ La razón es obligatoria',
+          content: '❌ Reason is required',
           ephemeral: true
         });
         return;
@@ -568,7 +591,36 @@ export class Bot {
 
       await interaction.deferUpdate();
       
-      // Mostrar ratings (la razón se guarda en showRatings)
+      const ticket = TicketManager.getTicket(ticketId);
+      const isTicketCreator = ticket && ticket.userId === interaction.user.id;
+      
+      // Si es el creador del ticket, cerrar directamente sin reviews
+      if (isTicketCreator) {
+        const channel = await interaction.guild.channels.fetch(ticket.channelId);
+        if (channel) {
+          const closingEmbed = new EmbedBuilder()
+            .setColor(0xff9900)
+            .setTitle('✅ Ticket Closing')
+            .setDescription('This ticket will close in a few seconds...')
+            .addFields({
+              name: '📝 Reason',
+              value: closeReason,
+              inline: false
+            })
+            .setTimestamp();
+          
+          await channel.send({ embeds: [closingEmbed] });
+        }
+        
+        // Cerrar después de 3-5 segundos
+        setTimeout(async () => {
+          await TicketManager.closeTicket(interaction.guild, ticketId, interaction.user.id);
+        }, 3000 + Math.random() * 2000);
+        
+        return;
+      }
+      
+      // Si es staff, mostrar ratings (la razón se guarda en showRatings)
       await TicketManager.showRatings(interaction.guild, ticketId, interaction.member, closeReason);
     }
   }
@@ -911,6 +963,8 @@ export class Bot {
             const serviceName = serviceInfo.service.toLowerCase();
             const quantity = serviceInfo.quantity;
             const newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}-🔧`;
+            
+            await message.channel.setName(newName);
             
             await message.channel.setName(newName);
             

@@ -46,6 +46,15 @@ export class TicketManager {
    */
   static async createTicket(guild, user, category) {
     try {
+      // Verificar que el usuario no tenga un ticket abierto
+      const userOpenTickets = Object.values(ticketsData.tickets).filter(
+        t => t.userId === user.id && !t.closed
+      );
+      
+      if (userOpenTickets.length > 0) {
+        throw new Error('You already have an open ticket. Please close it before creating a new one.');
+      }
+      
       const ticketId = `TKT-${String(ticketsData.nextId).padStart(4, '0')}`;
       const categoryName = category.charAt(0).toUpperCase() + category.slice(1).replace('_', ' ');
       
@@ -142,14 +151,14 @@ export class TicketManager {
             inline: true
           },
           {
-            name: '🕐 Creation Time',
-            value: new Date().toLocaleString('es-ES', { 
-              day: 'numeric', 
-              month: 'long', 
-              year: 'numeric', 
-              hour: '2-digit', 
-              minute: '2-digit' 
-            }),
+          name: '🕐 Creation Time',
+          value: new Date().toLocaleString('en-US', { 
+            day: 'numeric', 
+            month: 'long', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          }),
             inline: false
           },
           {
@@ -164,11 +173,11 @@ export class TicketManager {
       const buttons = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId(`ticket_close_${ticketId}`)
-          .setLabel('Cerrar')
+          .setLabel('Close')
           .setStyle(ButtonStyle.Danger),
         new ButtonBuilder()
           .setCustomId(`ticket_claim_${ticketId}`)
-          .setLabel('Reclamar')
+          .setLabel('Claim')
           .setStyle(ButtonStyle.Primary)
       );
 
@@ -213,10 +222,10 @@ export class TicketManager {
   static async claimTicket(guild, ticketId, staffMember) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       if (ticket.claimedBy) {
-        return { success: false, message: 'Este ticket ya ha sido reclamado' };
+        return { success: false, message: 'This ticket has already been claimed' };
       }
 
       ticket.claimedBy = staffMember.id;
@@ -228,7 +237,7 @@ export class TicketManager {
         const claimEmbed = new EmbedBuilder()
           .setColor(0x00ff00)
           .setTitle('✔ You have claimed this ticket')
-          .setDescription(`${staffMember} reclamó este ticket`)
+          .setDescription(`${staffMember} claimed this ticket`)
           .setTimestamp();
 
         await channel.send({ embeds: [claimEmbed] });
@@ -247,10 +256,10 @@ export class TicketManager {
   static async initiateClose(guild, ticketId, staffMember) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       if (ticket.closed) {
-        return { success: false, message: 'Este ticket ya está cerrado' };
+        return { success: false, message: 'This ticket is already closed' };
       }
 
       // Guardar quién está cerrando el ticket
@@ -262,7 +271,7 @@ export class TicketManager {
       saveTickets();
 
       const channel = await guild.channels.fetch(ticket.channelId);
-      if (!channel) throw new Error('Canal no encontrado');
+      if (!channel) throw new Error('Channel not found');
 
       // Verificar si el staff necesita poner razón
       const guildConfig = GuildConfig.getConfig(guild.id);
@@ -293,10 +302,10 @@ export class TicketManager {
   static async showRatings(guild, ticketId, staffMember, closeReason) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       const channel = await guild.channels.fetch(ticket.channelId);
-      if (!channel) throw new Error('Canal no encontrado');
+      if (!channel) throw new Error('Channel not found');
 
       // Guardar razón si existe
       if (closeReason) {
@@ -347,17 +356,17 @@ export class TicketManager {
       // Enviar mensaje informando que el ticket está cerrado y necesita reviews
       const closeNoticeEmbed = new EmbedBuilder()
         .setColor(0xff9900)
-        .setTitle('🔒 Ticket Cerrado - Reviews Obligatorias')
-        .setDescription(`Este ticket ha sido cerrado por el staff.\n\n**⚠️ IMPORTANTE:** Debes completar las reviews obligatorias para finalizar el proceso.`)
+        .setTitle('🔒 Ticket Closed - Mandatory Reviews')
+        .setDescription(`This ticket has been closed by staff.\n\n**⚠️ IMPORTANT:** You must complete the mandatory reviews to finalize the process.`)
         .addFields(
           {
-            name: '📝 Instrucciones',
-            value: '1. Completa la **Service Rating** (obligatoria)\n2. Completa la **Staff Rating** (obligatoria)\n3. El ticket se cerrará automáticamente después de completar ambas reviews',
+            name: '📝 Instructions',
+            value: '1. Complete the **Service Rating** (mandatory)\n2. Complete the **Staff Rating** (mandatory)\n3. The ticket will close automatically after completing both reviews',
             inline: false
           },
           {
-            name: '⏰ Tiempo límite',
-            value: 'Si no completas las reviews en **24 horas**, el ticket se cerrará automáticamente.',
+            name: '⏰ Time Limit',
+            value: 'If you do not complete the reviews within **24 hours**, the ticket will close automatically.',
             inline: false
           }
         )
@@ -408,23 +417,23 @@ export class TicketManager {
   static async processServiceRating(guild, ticketId, rating, userId) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       // Verificar que solo el usuario que creó el ticket puede hacer la review
       if (ticket.userId !== userId) {
-        throw new Error('Solo el usuario que creó el ticket puede hacer las reviews');
+        throw new Error('Only the user who created the ticket can complete the reviews');
       }
 
       // Verificar que el ticket esté pendiente de cierre
       if (!ticket.pendingClose) {
-        throw new Error('Este ticket no está pendiente de reviews');
+        throw new Error('This ticket is not pending reviews');
       }
 
       ticket.serviceRating = rating;
       saveTickets();
 
       const channel = await guild.channels.fetch(ticket.channelId);
-      if (!channel) throw new Error('Canal no encontrado');
+      if (!channel) throw new Error('Channel not found');
 
       // Actualizar embed de service rating
       const serviceMsg = await channel.messages.fetch(ticket.serviceRatingMsgId);
@@ -500,28 +509,28 @@ export class TicketManager {
   static async processStaffRating(guild, ticketId, rating, userId) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       // Verificar que solo el usuario que creó el ticket puede hacer la review
       if (ticket.userId !== userId) {
-        throw new Error('Solo el usuario que creó el ticket puede hacer las reviews');
+        throw new Error('Only the user who created the ticket can complete the reviews');
       }
 
       // Verificar que el ticket esté pendiente de cierre
       if (!ticket.pendingClose) {
-        throw new Error('Este ticket no está pendiente de reviews');
+        throw new Error('This ticket is not pending reviews');
       }
 
       // Verificar que ya haya completado la service rating
       if (!ticket.serviceRating) {
-        throw new Error('Debes completar primero la Service Rating');
+        throw new Error('You must complete the Service Rating first');
       }
 
       ticket.staffRating = rating;
       saveTickets();
 
       const channel = await guild.channels.fetch(ticket.channelId);
-      if (!channel) throw new Error('Canal no encontrado');
+      if (!channel) throw new Error('Channel not found');
 
       // Actualizar embed de staff rating
       const staffMsg = await channel.messages.fetch(ticket.staffRatingMsgId);
@@ -564,6 +573,15 @@ export class TicketManager {
         // Obtener el usuario que cerró el ticket
         const closedByUserId = ticket.closedBy || ticket.claimedBy || 'Sistema';
 
+        // Enviar mensaje de que se cerrará en unos segundos
+        const closingEmbed = new EmbedBuilder()
+          .setColor(0xff9900)
+          .setTitle('✅ Reviews Completed')
+          .setDescription('Thank you for your feedback! This ticket will close in a few seconds...')
+          .setTimestamp();
+        
+        await channel.send({ embeds: [closingEmbed] });
+
         // Cerrar ticket después de 3-5 segundos
         setTimeout(async () => {
           await this.closeTicket(guild, ticketId, closedByUserId);
@@ -573,7 +591,7 @@ export class TicketManager {
         const channel = await guild.channels.fetch(ticket.channelId);
         if (channel) {
           await channel.send({
-            content: `✅ **Staff Rating completada!**\n\nAhora completa la **Service Rating** para finalizar el proceso.`
+            content: `✅ **Staff Rating completed!**\n\nNow complete the **Service Rating** to finalize the process.`
           });
         }
       }
@@ -656,7 +674,7 @@ export class TicketManager {
   static async closeTicket(guild, ticketId, closedByUserId) {
     try {
       const ticket = ticketsData.tickets[ticketId];
-      if (!ticket) throw new Error('Ticket no encontrado');
+      if (!ticket) throw new Error('Ticket not found');
 
       ticket.closed = true;
       ticket.closedAt = new Date().toISOString();
@@ -664,7 +682,7 @@ export class TicketManager {
       saveTickets();
 
       const channel = await guild.channels.fetch(ticket.channelId);
-      if (!channel) throw new Error('Canal no encontrado');
+      if (!channel) throw new Error('Channel not found');
 
       // Enviar transcript
       await this.sendTranscript(guild, ticket);

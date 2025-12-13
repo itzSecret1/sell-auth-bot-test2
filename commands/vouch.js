@@ -32,32 +32,24 @@ export default {
     .setDescription('Create a new vouch')
     .addStringOption((option) =>
       option
-        .setName('product')
-        .setDescription('Product or service name (e.g., Amazon, Netflix, etc.)')
+        .setName('message')
+        .setDescription('Message about the vouch (required)')
         .setRequired(true)
-        .setMaxLength(100)
-    )
-    .addStringOption((option) =>
-      option
-        .setName('value')
-        .setDescription('Value of the vouch (e.g., 1000$, $50, etc.)')
-        .setRequired(true)
-        .setMaxLength(50)
+        .setMaxLength(500)
     )
     .addIntegerOption((option) =>
       option
-        .setName('rating')
-        .setDescription('Rating (1-5 stars)')
-        .setRequired(false)
+        .setName('stars')
+        .setDescription('Rating (1-5 stars) (required)')
+        .setRequired(true)
         .setMinValue(1)
         .setMaxValue(5)
     )
-    .addStringOption((option) =>
+    .addAttachmentOption((option) =>
       option
-        .setName('comment')
-        .setDescription('Optional comment about the vouch')
+        .setName('proof')
+        .setDescription('Image/video as proof (optional)')
         .setRequired(false)
-        .setMaxLength(500)
     ),
 
   onlyWhitelisted: false,
@@ -66,10 +58,9 @@ export default {
     try {
       await interaction.deferReply({ ephemeral: false });
 
-      const product = interaction.options.getString('product');
-      const value = interaction.options.getString('value');
-      const rating = interaction.options.getInteger('rating') || 5;
-      const comment = interaction.options.getString('comment') || null;
+      const message = interaction.options.getString('message');
+      const stars = interaction.options.getInteger('stars');
+      const proof = interaction.options.getAttachment('proof');
 
       // Cargar vouches existentes
       const vouchesData = loadVouches();
@@ -78,13 +69,23 @@ export default {
       // Incrementar número para el próximo vouch
       vouchesData.nextNumber = vouchNumber + 1;
 
+      // Validar que proof sea una imagen/video si se proporciona
+      if (proof) {
+        const allowedTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif', 'video/mp4'];
+        if (!allowedTypes.includes(proof.contentType)) {
+          await interaction.editReply({
+            content: '❌ Proof must be a png, jpg, jpeg, webp, gif or mp4 file.'
+          });
+          return;
+        }
+      }
+
       // Crear vouch
       const vouch = {
         id: vouchNumber,
-        product: product,
-        value: value,
-        rating: rating,
-        comment: comment,
+        message: message,
+        stars: stars,
+        proof: proof ? proof.url : null,
         vouchedBy: interaction.user.id,
         vouchedByUsername: interaction.user.username,
         vouchedByTag: interaction.user.tag,
@@ -101,11 +102,11 @@ export default {
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('✨ New Vouch Created!')
-        .setDescription(`**Vouch:** ${product} ${value}`)
+        .setDescription(message)
         .addFields(
           {
             name: '⭐ Rating',
-            value: '⭐'.repeat(rating) + '☆'.repeat(5 - rating),
+            value: '⭐'.repeat(stars) + '☆'.repeat(5 - stars),
             inline: false
           },
           {
@@ -125,13 +126,9 @@ export default {
           }
         );
 
-      // Agregar comentario si existe
-      if (comment) {
-        vouchEmbed.addFields({
-          name: '💬 Comment',
-          value: comment,
-          inline: false
-        });
+      // Agregar imagen si existe
+      if (proof) {
+        vouchEmbed.setImage(proof.url);
       }
 
       vouchEmbed
@@ -152,19 +149,18 @@ export default {
         result: 'Vouch created successfully',
         metadata: {
           'Vouch Number': vouchNumber.toString(),
-          'Product': product,
-          'Value': value,
-          'Rating': rating.toString(),
-          'Comment': comment || 'None'
+          'Message': message,
+          'Stars': stars.toString(),
+          'Proof': proof ? 'Yes' : 'No'
         }
       });
 
-      console.log(`[VOUCH] ✅ Vouch #${vouchNumber} creado por ${interaction.user.tag}: ${product} ${value}`);
+      console.log(`[VOUCH] ✅ Vouch #${vouchNumber} created by ${interaction.user.tag}: ${message} (${stars} stars)`);
 
     } catch (error) {
       console.error('[VOUCH] Error:', error);
       await interaction.editReply({
-        content: `❌ Error al crear el vouch: ${error.message}`
+        content: `❌ Error creating vouch: ${error.message}`
       }).catch(() => {});
     }
   }
