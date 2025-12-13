@@ -60,6 +60,8 @@ export default {
     const targetLang = interaction.options.getString('language');
 
     try {
+      const translateModule = await import('@vitalets/google-translate-api');
+      const translate = translateModule.default || translateModule;
       const result = await translate(message, { to: targetLang });
       const translatedText = result.text;
       const langInfo = SUPPORTED_LANGUAGES[targetLang];

@@ -99,51 +99,37 @@ export default {
         return `${idx + 1}. ${vouchInfo}`;
       }).join('\n') || 'No vouches found';
 
-      const embed = new EmbedBuilder()
+      // Enviar mensaje simple de restauración (como cuando se crea un vouch)
+      const restoreEmbed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setTitle('✅ Vouches Restored')
-        .setDescription('All vouches from the backup have been successfully restored.')
+        .setDescription(`**${vouchesCount}** vouches have been restored from backup.`)
         .addFields(
           {
-            name: '👤 Restored by',
-            value: `${interaction.user} (${interaction.user.tag})\n**ID:** ${interaction.user.id}`,
+            name: '📁 Backup File',
+            value: `\`${backupFileName}\``,
             inline: true
           },
           {
-            name: '📦 Total Vouches Restored',
-            value: vouchesCount.toString(),
+            name: '👤 Restored by',
+            value: `<@${interaction.user.id}>`,
             inline: true
           },
           {
             name: '📅 Restore Date',
             value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
             inline: true
-          },
-          {
-            name: '📁 Backup File',
-            value: `\`${backupFileName}\``,
-            inline: false
-          },
-          {
-            name: '📋 Restored Vouches (First 20)',
-            value: vouchesList.length > 1024 ? vouchesList.substring(0, 1020) + '...' : vouchesList,
-            inline: false
-          },
-          {
-            name: '💾 Pre-Restore Backup',
-            value: `Saved as: \`pre_restore_${timestamp}.json\``,
-            inline: false
           }
         )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
-          text: vouchesCount > 20 ? `Showing first 20 of ${vouchesCount} vouches • Restored by ${interaction.user.username}` : `Vouches restored successfully • Restored by ${interaction.user.username}`,
+          text: `Powered by SellAuth Bot • Restored by ${interaction.user.username}`,
           iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
         })
         .setTimestamp();
 
       await interaction.editReply({
-        embeds: [embed]
+        embeds: [restoreEmbed]
       });
 
       console.log(`[VOUCHES-RESTORE] ✅ Vouches restored from ${backupFileName} (${vouchesCount} vouches) by ${interaction.user.tag} (${interaction.user.id})`);

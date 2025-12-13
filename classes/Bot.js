@@ -264,6 +264,11 @@ export class Bot {
             await this.handleSetupButton(interaction);
             return;
           }
+          // Verificar si es un botón de giveaway
+          if (interaction.customId.startsWith('giveaway_join_')) {
+            await this.handleGiveawayButton(interaction);
+            return;
+          }
           // Manejar botones de tickets
           await this.handleTicketButton(interaction);
         } catch (error) {
@@ -411,6 +416,37 @@ export class Bot {
     if (customId.startsWith('ticket_')) {
       const category = customId.replace('ticket_', '');
       if (['replaces', 'faq', 'purchase', 'partner', 'partner_manager'].includes(category)) {
+        // Si es "replaces", pedir invoice ID primero
+        if (category === 'replaces') {
+          const modal = new ModalBuilder()
+            .setCustomId(`ticket_replaces_modal`)
+            .setTitle('Replaces Ticket - Invoice Required');
+
+          const invoiceInput = new TextInputBuilder()
+            .setCustomId('invoice_id')
+            .setLabel('Invoice ID (Required)')
+            .setStyle(TextInputStyle.Short)
+            .setPlaceholder('Enter your invoice ID...')
+            .setRequired(true)
+            .setMaxLength(100);
+
+          const proofInput = new TextInputBuilder()
+            .setCustomId('proof_note')
+            .setLabel('Proof (Optional - Upload image after)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('You can upload proof image after ticket creation...')
+            .setRequired(false)
+            .setMaxLength(500);
+
+          const actionRow1 = new ActionRowBuilder().addComponents(invoiceInput);
+          const actionRow2 = new ActionRowBuilder().addComponents(proofInput);
+          modal.addComponents(actionRow1, actionRow2);
+
+          await interaction.showModal(modal);
+          return;
+        }
+        
+        // Para otras categorías, crear directamente
         await interaction.deferReply({ ephemeral: true });
         
         const guild = interaction.guild;
@@ -419,7 +455,7 @@ export class Bot {
         const result = await TicketManager.createTicket(guild, user, category);
         
         await interaction.editReply({
-          content: `✅ Ticket ${result.ticketId} creado en ${result.channel}`
+          content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
         });
         return;
       }
@@ -437,14 +473,24 @@ export class Bot {
       
       if (!hasStaffRole && !hasAdminRole) {
         await interaction.reply({
-          content: '❌ Solo el staff puede reclamar tickets',
+          content: '❌ Only staff can claim tickets',
+          ephemeral: true
+        });
+        return;
+      }
+
+      const ticketId = customId.replace('ticket_claim_', '');
+      const ticket = TicketManager.getTicket(ticketId);
+      
+      if (!ticket) {
+        await interaction.reply({
+          content: '❌ Ticket not found',
           ephemeral: true
         });
         return;
       }
 
       await interaction.deferUpdate();
-      const ticketId = customId.replace('ticket_claim_', '');
       const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
       
       if (!result.success) {
@@ -576,7 +622,103 @@ export class Bot {
     }
   }
 
+  async handleGiveawayButton(interaction) {
+    const giveawayId = interaction.customId.replace('giveaway_join_', '');
+    const { readFileSync, writeFileSync, existsSync } = await import('fs');
+    const GIVEAWAYS_FILE = './giveaways.json';
+
+    function loadGiveaways() {
+      try {
+        if (existsSync(GIVEAWAYS_FILE)) {
+          const data = readFileSync(GIVEAWAYS_FILE, 'utf-8');
+          return JSON.parse(data);
+        }
+      } catch (error) {
+        console.error('[GIVEAWAY] Error loading giveaways:', error);
+      }
+      return { giveaways: {}, nextId: 1 };
+    }
+
+    function saveGiveaways(data) {
+      try {
+        writeFileSync(GIVEAWAYS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+      } catch (error) {
+        console.error('[GIVEAWAY] Error saving giveaways:', error);
+      }
+    }
+
+    try {
+      const giveawaysData = loadGiveaways();
+      const giveaway = giveawaysData.giveaways[giveawayId];
+
+      if (!giveaway || giveaway.ended) {
+        await interaction.reply({
+          content: '❌ This giveaway has ended',
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (Date.now() >= giveaway.endTime) {
+        await interaction.reply({
+          content: '❌ This giveaway has ended',
+          ephemeral: true
+        });
+        return;
+      }
+
+      if (giveaway.participants.includes(interaction.user.id)) {
+        await interaction.reply({
+          content: '✅ You are already participating in this giveaway!',
+          ephemeral: true
+        });
+        return;
+      }
+
+      giveaway.participants.push(interaction.user.id);
+      saveGiveaways(giveawaysData);
+
+      await interaction.reply({
+        content: '🎉 You have joined the giveaway! Good luck!',
+        ephemeral: true
+      });
+
+    } catch (error) {
+      console.error('[GIVEAWAY] Error handling button:', error);
+      await interaction.reply({
+        content: '❌ Error joining giveaway',
+        ephemeral: true
+      }).catch(() => {});
+    }
+  }
+
   async handleTicketModal(interaction) {
+    // Modal para crear ticket de replaces con invoice
+    if (interaction.customId === 'ticket_replaces_modal') {
+      const invoiceId = interaction.fields.getTextInputValue('invoice_id');
+      
+      if (!invoiceId || invoiceId.trim().length === 0) {
+        await interaction.reply({
+          content: '❌ Invoice ID is required',
+          ephemeral: true
+        });
+        return;
+      }
+
+      await interaction.deferReply({ ephemeral: true });
+      
+      const guild = interaction.guild;
+      const user = interaction.user;
+      
+      const result = await TicketManager.createTicket(guild, user, 'replaces', invoiceId);
+      
+      await interaction.editReply({
+        content: `✅ Ticket ${result.ticketId} created in ${result.channel}\n\n📋 **Invoice ID:** ${invoiceId}\n\n💡 You can now upload proof images in the ticket channel.`
+      });
+      return;
+    }
+
+    // Modal para cerrar ticket
     if (interaction.customId.startsWith('ticket_close_modal_')) {
       const ticketId = interaction.customId.replace('ticket_close_modal_', '');
       const closeReason = interaction.fields.getTextInputValue('close_reason');
@@ -854,36 +996,36 @@ export class Bot {
         },
         {
           name: '🛒 Rol de Cliente',
-          value: session.config.customerRoleId ? `<@&${session.config.customerRoleId}>` : 'No configurado',
+          value: session.config.customerRoleId ? `<@&${session.config.customerRoleId}>` : 'Not configured',
           inline: true
         },
         {
           name: '📝 Canal de Logs',
-          value: session.config.logChannelId ? `<#${session.config.logChannelId}>` : 'No configurado',
+          value: session.config.logChannelId ? `<#${session.config.logChannelId}>` : 'Not configured',
           inline: true
         },
         {
           name: '📄 Canal de Transcripts',
-          value: session.config.transcriptChannelId ? `<#${session.config.transcriptChannelId}>` : 'No configurado',
+          value: session.config.transcriptChannelId ? `<#${session.config.transcriptChannelId}>` : 'Not configured',
           inline: true
         },
         {
           name: '⭐ Canal de Ratings',
-          value: session.config.ratingChannelId ? `<#${session.config.ratingChannelId}>` : 'No configurado',
+          value: session.config.ratingChannelId ? `<#${session.config.ratingChannelId}>` : 'Not configured',
           inline: true
         },
         {
           name: '🚫 Canal de Spam/Bans',
-          value: session.config.spamChannelId ? `<#${session.config.spamChannelId}>` : 'No configurado',
+          value: session.config.spamChannelId ? `<#${session.config.spamChannelId}>` : 'Not configured',
           inline: true
         },
         {
           name: '🔧 Rol de Trial Admin',
-          value: session.config.trialAdminRoleId ? `<@&${session.config.trialAdminRoleId}>` : 'No configurado',
+          value: session.config.trialAdminRoleId ? `<@&${session.config.trialAdminRoleId}>` : 'Not configured',
           inline: true
         }
       )
-      .setFooter({ text: `Configurado por ${interaction.user.username}` })
+      .setFooter({ text: `Configured by ${interaction.user.username}` })
       .setTimestamp();
 
     await interaction.update({
@@ -894,7 +1036,7 @@ export class Bot {
 
     SetupWizard.deleteSession(interaction.user.id);
 
-    console.log(`[SETUP] Bot configurado en servidor: ${interaction.guild.name} (${session.guildId})`);
+    console.log(`[SETUP] Bot configured in server: ${interaction.guild.name} (${session.guildId})`);
   }
 
   onMessageCreate() {
@@ -962,13 +1104,15 @@ export class Bot {
             const ticketId = ticket.id;
             const serviceName = serviceInfo.service.toLowerCase();
             const quantity = serviceInfo.quantity;
-            const newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}-🔧`;
+            // Asegurar que el emoji 🔧 siempre esté presente
+            let newName = `replace-${serviceName}-x${quantity}-acc-${ticketId.toLowerCase()}`;
+            if (!newName.includes('🔧')) {
+              newName += '-🔧';
+            }
             
             await message.channel.setName(newName);
             
-            await message.channel.setName(newName);
-            
-            console.log(`[TICKET] Ticket ${ticketId} renombrado a "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
+            console.log(`[TICKET] Ticket ${ticketId} renamed to "${newName}" (Invoice: ${invoiceMatch}, Service: ${serviceName}, Qty: ${quantity})`);
             
             // Si hay foto, también procesar replace-message
             if (hasImages) {
@@ -996,7 +1140,7 @@ export class Bot {
                   
                   await replaceMessageCommand.execute(fakeInteraction, this.api);
                   
-                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detectado, replace-message ejecutado automáticamente`);
+                  console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detected, replace-message executed automatically`);
                 } catch (error) {
                   console.error('[AUTO-REPLACE] Error:', error);
                 }
@@ -1005,7 +1149,7 @@ export class Bot {
             
             return; // Salir después de procesar invoice + servicio
           } catch (renameError) {
-            console.error('[TICKET] Error al renombrar ticket:', renameError);
+            console.error('[TICKET] Error renaming ticket:', renameError);
           }
         }
         
@@ -1021,9 +1165,9 @@ export class Bot {
             // Marcar que ya se especificó la cuenta
             ticket.accountSpecified = true;
             
-            console.log(`[TICKET] Ticket ${ticketId} renombrado a "${newName}" después de especificar cuenta`);
+            console.log(`[TICKET] Ticket ${ticketId} renamed to "${newName}" after specifying account`);
           } catch (renameError) {
-            console.error('[TICKET] Error al renombrar ticket:', renameError);
+            console.error('[TICKET] Error renaming ticket:', renameError);
           }
         }
         

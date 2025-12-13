@@ -222,42 +222,42 @@ export default {
           inline: true
         },
         {
-          name: '👥 Rol de Trial Staff',
+          name: '👥 Trial Staff Role',
           value: `${staffRole}`,
           inline: true
         },
         {
-          name: '🛒 Rol de Cliente',
-          value: customerRole ? `${customerRole}` : 'No configurado',
+          name: '🛒 Customer Role',
+          value: customerRole ? `${customerRole}` : 'Not configured',
           inline: true
         },
         {
-          name: '📝 Canal de Logs',
-          value: logChannel ? `${logChannel}` : 'No configurado',
+          name: '📝 Log Channel',
+          value: logChannel ? `${logChannel}` : 'Not configured',
           inline: true
         },
         {
-          name: '📄 Canal de Transcripts',
-          value: transcriptChannel ? `${transcriptChannel}` : 'No configurado',
+          name: '📄 Transcript Channel',
+          value: transcriptChannel ? `${transcriptChannel}` : 'Not configured',
           inline: true
         },
         {
-          name: '⭐ Canal de Ratings',
-          value: ratingChannel ? `${ratingChannel}` : 'No configurado',
+          name: '⭐ Rating Channel',
+          value: ratingChannel ? `${ratingChannel}` : 'Not configured',
           inline: true
         },
         {
-          name: '🚫 Canal de Spam/Bans',
-          value: spamChannel ? `${spamChannel}` : 'No configurado',
+          name: '🚫 Spam/Ban Channel',
+          value: spamChannel ? `${spamChannel}` : 'Not configured',
           inline: true
         },
         {
-          name: '🔧 Rol de Trial Admin',
-          value: trialAdminRole ? `${trialAdminRole}` : 'No configurado',
+          name: '🔧 Trial Admin Role',
+          value: trialAdminRole ? `${trialAdminRole}` : 'Not configured',
           inline: true
         }
       )
-      .setFooter({ text: `Configurado por ${interaction.user.username}` })
+      .setFooter({ text: `Configured by ${interaction.user.username}` })
       .setTimestamp();
 
     await interaction.editReply({
@@ -265,7 +265,7 @@ export default {
     });
 
     // Registrar en consola
-    console.log(`[SETUP] Bot configurado en servidor: ${interaction.guild.name} (${guildId})`);
+    console.log(`[SETUP] Bot configured in server: ${interaction.guild.name} (${guildId})`);
     console.log(`[SETUP] Admin Role: ${adminRole.name} (${adminRole.id})`);
     console.log(`[SETUP] Staff Role: ${staffRole.name} (${staffRole.id})`);
   }

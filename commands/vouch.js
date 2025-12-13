@@ -98,7 +98,7 @@ export default {
       vouchesData.vouches.push(vouch);
       saveVouches(vouchesData);
 
-      // Crear embed del vouch
+      // Crear embed del vouch (formato simple como en la foto)
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('✨ New Vouch Created!')
@@ -124,14 +124,7 @@ export default {
             value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
             inline: true
           }
-        );
-
-      // Agregar imagen si existe
-      if (proof) {
-        vouchEmbed.setImage(proof.url);
-      }
-
-      vouchEmbed
+        )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
           text: `Powered by SellAuth Bot • Vouch #${vouchNumber}`,
@@ -139,9 +132,17 @@ export default {
         })
         .setTimestamp();
 
-      await interaction.editReply({
-        embeds: [vouchEmbed]
-      });
+      // Agregar imagen si existe (como imagen separada, no en el embed)
+      if (proof) {
+        await interaction.editReply({
+          embeds: [vouchEmbed],
+          files: [proof]
+        });
+      } else {
+        await interaction.editReply({
+          embeds: [vouchEmbed]
+        });
+      }
 
       // Log
       await AdvancedCommandLogger.logCommand(interaction, 'vouch', {

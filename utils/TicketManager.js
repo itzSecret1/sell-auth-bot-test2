@@ -44,7 +44,7 @@ export class TicketManager {
   /**
    * Crear un nuevo ticket
    */
-  static async createTicket(guild, user, category) {
+  static async createTicket(guild, user, category, invoiceId = null) {
     try {
       // Verificar que el usuario no tenga un ticket abierto
       const userOpenTickets = Object.values(ticketsData.tickets).filter(
@@ -149,8 +149,20 @@ export class TicketManager {
             name: '👤 User',
             value: `${user}`,
             inline: true
-          },
-          {
+          }
+        );
+
+      // Si es replaces y tiene invoice ID, agregarlo
+      if (category.toLowerCase() === 'replaces' && invoiceId) {
+        ticketEmbed.addFields({
+          name: '📋 Invoice ID',
+          value: `\`${invoiceId}\``,
+          inline: false
+        });
+      }
+
+      ticketEmbed.addFields(
+        {
           name: '🕐 Creation Time',
           value: new Date().toLocaleString('en-US', { 
             day: 'numeric', 
@@ -159,15 +171,17 @@ export class TicketManager {
             hour: '2-digit', 
             minute: '2-digit' 
           }),
-            inline: false
-          },
-          {
-            name: '📝 Instructions',
-            value: 'Describe your issue or request. Our team will contact you soon.',
-            inline: false
-          }
-        )
-        .setFooter({ text: 'Shop System • El servidor de itz_Secret Alt' })
+          inline: false
+        },
+        {
+          name: '📝 Instructions',
+          value: category.toLowerCase() === 'replaces' && invoiceId 
+            ? 'Please upload proof images in this channel. Our team will process your replacement shortly.'
+            : 'Describe your issue or request. Our team will contact you soon.',
+          inline: false
+        }
+      )
+        .setFooter({ text: 'Shop System' })
         .setTimestamp();
 
       const buttons = new ActionRowBuilder().addComponents(
@@ -193,6 +207,7 @@ export class TicketManager {
         channelId: ticketChannel.id,
         category: categoryName,
         createdAt: new Date().toISOString(),
+        invoiceId: invoiceId || null,
         claimedBy: null,
         claimedAt: null,
         closed: false,
@@ -732,11 +747,21 @@ export class TicketManager {
       const messages = await channel.messages.fetch({ limit: 100 });
       const sortedMessages = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
+      const user = await guild.members.fetch(ticket.userId).catch(() => null);
+      const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
+      const closedBy = ticket.closedBy ? await guild.members.fetch(ticket.closedBy).catch(() => null) : null;
+
       let transcript = `# Transcript - ${ticket.id}\n\n`;
       transcript += `**Category:** ${ticket.category}\n`;
-      transcript += `**User:** <@${ticket.userId}>\n`;
-      transcript += `**Created:** ${new Date(ticket.createdAt).toLocaleString('es-ES')}\n`;
-      transcript += `**Closed:** ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('es-ES') : 'N/A'}\n`;
+      transcript += `**User:** ${user ? `<@${ticket.userId}>` : `User ID: ${ticket.userId}`}\n`;
+      if (claimedBy) {
+        transcript += `**Claimed by:** <@${ticket.claimedBy}>\n`;
+      }
+      transcript += `**Created:** ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' })}\n`;
+      transcript += `**Closed:** ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' }) : 'N/A'}\n`;
+      if (closedBy) {
+        transcript += `**Closed by:** <@${ticket.closedBy}>\n`;
+      }
       if (ticket.closeReason) {
         transcript += `**Close Reason:** ${ticket.closeReason}\n`;
       }
@@ -745,7 +770,7 @@ export class TicketManager {
       transcript += `\n--- Messages ---\n\n`;
 
       for (const msg of sortedMessages.values()) {
-        const date = new Date(msg.createdTimestamp).toLocaleString('es-ES');
+        const date = new Date(msg.createdTimestamp).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' });
         transcript += `[${date}] ${msg.author.tag}: ${msg.content}\n`;
         if (msg.embeds.length > 0) {
           transcript += `  [Embed: ${msg.embeds[0].title || 'No title'}]\n`;
