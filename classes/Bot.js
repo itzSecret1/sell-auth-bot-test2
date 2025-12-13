@@ -49,6 +49,11 @@ export class Bot {
 
     this.client.on('clientReady', () => {
       console.log(`${this.client.user.username} ready!`);
+      console.log(`[BOT] Bot ID: ${this.client.user.id}`);
+      console.log(`[BOT] Bot Tag: ${this.client.user.tag}`);
+      console.log(`[BOT] Bot Username: ${this.client.user.username}`);
+      console.log(`[BOT] Bot Discriminator: ${this.client.user.discriminator}`);
+      
       if (!this.isRegisteringCommands) {
         this.registerSlashCommands();
       }
@@ -211,19 +216,41 @@ export class Bot {
             if (this.slashCommands.length > 0) {
               console.log(`[BOT] 📝 Registering ${this.slashCommands.length} command(s) in ${guild.name}...`);
               
-              // Agregar timeout para evitar que se quede atascado
-              const registerPromise = rest.put(route, { body: this.slashCommands });
-              const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Command registration timeout (30s)')), 30000)
-              );
-              
-              try {
-                const registered = await Promise.race([registerPromise, timeoutPromise]);
-                console.log(`[BOT] ✅ ${guild.name}: ${registered.length}/${this.slashCommands.length} commands registered successfully`);
-              } catch (registerError) {
-                console.error(`[BOT] ❌ Error registering commands in batch for ${guild.name}:`, registerError.message);
-                throw registerError; // Lanzar error para que use el fallback
+              // Dividir comandos en lotes de 20 para evitar timeouts
+              const BATCH_SIZE = 20;
+              const batches = [];
+              for (let i = 0; i < this.slashCommands.length; i += BATCH_SIZE) {
+                batches.push(this.slashCommands.slice(i, i + BATCH_SIZE));
               }
+              
+              let totalRegistered = 0;
+              
+              for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+                const batch = batches[batchIndex];
+                console.log(`[BOT] 📦 Registering batch ${batchIndex + 1}/${batches.length} (${batch.length} commands)...`);
+                
+                try {
+                  // Agregar timeout para evitar que se quede atascado
+                  const registerPromise = rest.put(route, { body: batch });
+                  const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(`Batch ${batchIndex + 1} timeout (20s)`)), 20000)
+                  );
+                  
+                  const registered = await Promise.race([registerPromise, timeoutPromise]);
+                  totalRegistered += registered.length;
+                  console.log(`[BOT] ✅ Batch ${batchIndex + 1}/${batches.length}: ${registered.length} commands registered`);
+                  
+                  // Esperar un poco entre lotes para evitar rate limits
+                  if (batchIndex < batches.length - 1) {
+                    await new Promise(r => setTimeout(r, 1000));
+                  }
+                } catch (batchError) {
+                  console.error(`[BOT] ❌ Error registering batch ${batchIndex + 1} for ${guild.name}:`, batchError.message);
+                  throw batchError; // Lanzar error para que use el fallback
+                }
+              }
+              
+              console.log(`[BOT] ✅ ${guild.name}: ${totalRegistered}/${this.slashCommands.length} commands registered successfully`);
             }
           } catch (restError) {
             // Fallback to individual command creation
