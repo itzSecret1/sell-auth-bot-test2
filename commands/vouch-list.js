@@ -80,7 +80,8 @@ export default {
               hour: '2-digit',
               minute: '2-digit'
             });
-            return `**#${vouch.id}** - ${vouch.service} ${vouch.value} ${'⭐'.repeat(vouch.rating)} - <@${vouch.vouchedBy}> (${dateStr})`;
+            const product = vouch.product || vouch.service || 'Unknown';
+          return `**#${vouch.id}** - ${product} ${vouch.value} ${'⭐'.repeat(vouch.rating)} - <@${vouch.vouchedBy}> (${dateStr})`;
           }).join('\n')
         )
         .setFooter({ 

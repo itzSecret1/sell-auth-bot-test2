@@ -34,7 +34,7 @@ export class DailyBackupReporter {
       };
 
       // Backup key files
-      const filesToBackup = ['variantsData.json', 'replaceHistory.json', 'sessionState.json'];
+      const filesToBackup = ['variantsData.json', 'replaceHistory.json', 'sessionState.json', 'vouches.json'];
 
       for (const file of filesToBackup) {
         try {
@@ -44,6 +44,29 @@ export class DailyBackupReporter {
         } catch (e) {
           console.error(`[BACKUP] Error backing up ${file}:`, e.message);
         }
+      }
+
+      // Backup específico de vouches
+      try {
+        const { readFileSync: readVouches, existsSync: vouchesExists, writeFileSync: writeVouches, mkdirSync: mkdirVouches } = await import('fs');
+        const { join: joinVouches } = await import('path');
+        const vouchesBackupDir = './vouches_backups';
+        
+        if (!vouchesExists(vouchesBackupDir)) {
+          mkdirVouches(vouchesBackupDir, { recursive: true });
+        }
+        
+        if (vouchesExists('./vouches.json')) {
+          const vouchesData = JSON.parse(readVouches('./vouches.json', 'utf-8'));
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          const vouchesBackupFile = `vouches_backup_${timestamp}.json`;
+          const vouchesBackupPath = joinVouches(vouchesBackupDir, vouchesBackupFile);
+          
+          writeVouches(vouchesBackupPath, JSON.stringify(vouchesData, null, 2), 'utf-8');
+          console.log(`[BACKUP] ✅ Vouches backup creado: ${vouchesBackupFile} (${vouchesData.vouches?.length || 0} vouches)`);
+        }
+      } catch (vouchesError) {
+        console.error('[BACKUP] Error en backup de vouches:', vouchesError.message);
       }
 
       writeFileSync(backupPath, JSON.stringify(backupData, null, 2));

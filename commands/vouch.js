@@ -32,8 +32,8 @@ export default {
     .setDescription('Create a new vouch')
     .addStringOption((option) =>
       option
-        .setName('service')
-        .setDescription('Service or product name (e.g., Amazon, Netflix, etc.)')
+        .setName('product')
+        .setDescription('Product or service name (e.g., Amazon, Netflix, etc.)')
         .setRequired(true)
         .setMaxLength(100)
     )
@@ -51,6 +51,13 @@ export default {
         .setRequired(false)
         .setMinValue(1)
         .setMaxValue(5)
+    )
+    .addStringOption((option) =>
+      option
+        .setName('comment')
+        .setDescription('Optional comment about the vouch')
+        .setRequired(false)
+        .setMaxLength(500)
     ),
 
   onlyWhitelisted: false,
@@ -59,9 +66,10 @@ export default {
     try {
       await interaction.deferReply({ ephemeral: false });
 
-      const service = interaction.options.getString('service');
+      const product = interaction.options.getString('product');
       const value = interaction.options.getString('value');
       const rating = interaction.options.getInteger('rating') || 5;
+      const comment = interaction.options.getString('comment') || null;
 
       // Cargar vouches existentes
       const vouchesData = loadVouches();
@@ -73,9 +81,10 @@ export default {
       // Crear vouch
       const vouch = {
         id: vouchNumber,
-        service: service,
+        product: product,
         value: value,
         rating: rating,
+        comment: comment,
         vouchedBy: interaction.user.id,
         vouchedByUsername: interaction.user.username,
         vouchedByTag: interaction.user.tag,
@@ -92,7 +101,7 @@ export default {
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('✨ New Vouch Created!')
-        .setDescription(`**Vouch:** ${service} ${value}`)
+        .setDescription(`**Vouch:** ${product} ${value}`)
         .addFields(
           {
             name: '⭐ Rating',
@@ -114,7 +123,18 @@ export default {
             value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
             inline: true
           }
-        )
+        );
+
+      // Agregar comentario si existe
+      if (comment) {
+        vouchEmbed.addFields({
+          name: '💬 Comment',
+          value: comment,
+          inline: false
+        });
+      }
+
+      vouchEmbed
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
           text: `Powered by SellAuth Bot • Vouch #${vouchNumber}`,
@@ -132,13 +152,14 @@ export default {
         result: 'Vouch created successfully',
         metadata: {
           'Vouch Number': vouchNumber.toString(),
-          'Service': service,
+          'Product': product,
           'Value': value,
-          'Rating': rating.toString()
+          'Rating': rating.toString(),
+          'Comment': comment || 'None'
         }
       });
 
-      console.log(`[VOUCH] ✅ Vouch #${vouchNumber} creado por ${interaction.user.tag}: ${service} ${value}`);
+      console.log(`[VOUCH] ✅ Vouch #${vouchNumber} creado por ${interaction.user.tag}: ${product} ${value}`);
 
     } catch (error) {
       console.error('[VOUCH] Error:', error);
