@@ -47,7 +47,7 @@ export class Bot {
 
     this.loginWithRetry();
 
-    this.client.on('ready', () => {
+    this.client.on('clientReady', () => {
       console.log(`${this.client.user.username} ready!`);
       if (!this.isRegisteringCommands) {
         this.registerSlashCommands();
@@ -1264,6 +1264,10 @@ export class Bot {
           {
             triggers: ['invoice', 'invoice number', 'invoice id'],
             response: '📄 **Invoice Information**\n\nPlease send:\n1. Your invoice number (alphanumeric code)\n2. Proof/screenshot of the issue\n\nThis will help the staff process your request faster.'
+          },
+          {
+            triggers: ['payment', 'payment method', 'pay', 'how to pay', 'payment methods', 'btc', 'ltc', 'pp', 'paypal', 'bitcoin', 'litecoin', 'crypto'],
+            response: '💳 **Payment Methods**\n\nWe accept the following payment methods:\n• **BTC** (Bitcoin)\n• **LTC** (Litecoin)\n• **PP** (PayPal)\n\n**Note:** Payment methods may vary. Please check our website or announcements for the most up-to-date information on available payment options.\n\nFor payment-related issues, please contact our support team.'
           }
         ];
 

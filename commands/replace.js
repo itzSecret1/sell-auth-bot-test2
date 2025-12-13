@@ -42,7 +42,7 @@ export default {
     )
     .addStringOption((option) =>
       option.setName('variant').setDescription('Select variant').setRequired(true).setAutocomplete(true)
-    )
+    ),
 
   onlyWhitelisted: true,
   requiredRole: 'staff',
