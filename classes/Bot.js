@@ -296,14 +296,14 @@ export class Bot {
                 
                 while (!registered && retries <= maxRetries) {
                   try {
-                    // Usar REST API directamente - POST para crear comando individual
-                    const route = `/applications/${this.client.user.id}/guilds/${guild.id}/commands`;
-                    const createPromise = rest.post(route, { body: cmd });
+                    // Usar REST API con PUT - registrar comando individual usando array de un solo comando
+                    const route = Routes.applicationGuildCommands(this.client.user.id, guild.id);
+                    const createPromise = rest.put(route, { body: [cmd] }); // Array con un solo comando
                     const cmdTimeoutPromise = new Promise((_, reject) => 
-                      setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (8s)`)), 8000)
+                      setTimeout(() => reject(new Error(`Command ${cmd.name} timeout (15s)`)), 15000)
                     );
                     
-                    await Promise.race([createPromise, cmdTimeoutPromise]);
+                    const result = await Promise.race([createPromise, cmdTimeoutPromise]);
                     registered = true;
                     success++;
                     
@@ -313,14 +313,19 @@ export class Bot {
                     }
                     
                     // Esperar entre comandos para evitar rate limits
-                    await new Promise(r => setTimeout(r, 700));
+                    await new Promise(r => setTimeout(r, 500));
                   } catch (err) {
                     retries++;
                     const cmdTime = ((Date.now() - startCmdTime) / 1000).toFixed(2);
                     
+                    // Log detallado del error
+                    if (retries === 1) {
+                      console.warn(`[BOT] ⚠️  Error on ${cmd.name} (attempt ${retries}/${maxRetries + 1}):`, err.message || err.code || err);
+                    }
+                    
                     // Si es rate limit, esperar y reintentar
                     if (err.code === 50035 || err.status === 429 || err.message?.includes('rate limit') || err.retry_after) {
-                      const waitTime = err.retry_after ? (err.retry_after * 1000) : (5000 + (retries * 2000));
+                      const waitTime = err.retry_after ? (err.retry_after * 1000) : (3000 + (retries * 1000));
                       console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s (retry ${retries}/${maxRetries})...`);
                       await new Promise(r => setTimeout(r, waitTime));
                       continue;
@@ -329,13 +334,13 @@ export class Bot {
                     // Si es timeout y aún tenemos reintentos, intentar de nuevo
                     if (err.message?.includes('timeout') && retries < maxRetries) {
                       console.warn(`[BOT] ⏱️  Command ${cmd.name} timed out, retrying (${retries}/${maxRetries})...`);
-                      await new Promise(r => setTimeout(r, 2000));
+                      await new Promise(r => setTimeout(r, 3000));
                       continue;
                     }
                     
                     // Si llegamos aquí, el comando falló definitivamente
                     failed++;
-                    console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message || err}`);
+                    console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name} (${cmdTime}s): ${err.message || err.code || err}`);
                     break;
                   }
                 }
