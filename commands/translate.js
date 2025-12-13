@@ -1,4 +1,4 @@
-import { SlashCommandBuilder } from 'discord.js';
+import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
 import translate from '@vitalets/google-translate-api';
 
 const SUPPORTED_LANGUAGES = {
@@ -64,10 +64,10 @@ export default {
       const translatedText = result.text;
       const langInfo = SUPPORTED_LANGUAGES[targetLang];
 
-      const embed = {
-        color: 0x5865f2,
-        title: `${langInfo.emoji} Translation to ${langInfo.name}`,
-        fields: [
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(`${langInfo.emoji} Translation to ${langInfo.name}`)
+        .addFields(
           {
             name: '📝 Original Message',
             value: message.length > 1024 ? message.substring(0, 1021) + '...' : message,
@@ -75,17 +75,15 @@ export default {
           },
           {
             name: `${langInfo.emoji} Translated Message`,
-            value:
-              translatedText.length > 1024 ? translatedText.substring(0, 1021) + '...' : translatedText,
+            value: translatedText.length > 1024 ? translatedText.substring(0, 1021) + '...' : translatedText,
             inline: false
           }
-        ],
-        footer: {
+        )
+        .setFooter({ 
           text: `Translated by ${interaction.user.username}`,
-          icon_url: interaction.user.displayAvatarURL()
-        },
-        timestamp: new Date().toISOString()
-      };
+          iconURL: interaction.user.displayAvatarURL()
+        })
+        .setTimestamp();
 
       await interaction.editReply({ embeds: [embed] });
     } catch (error) {

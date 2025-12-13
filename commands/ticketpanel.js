@@ -4,7 +4,7 @@ import { config } from '../utils/config.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('ticketpanel')
-    .setDescription('Crea el panel de tickets'),
+    .setDescription('Create the ticket panel'),
 
   async execute(interaction) {
     try {
@@ -77,7 +77,7 @@ export default {
       });
 
       await interaction.editReply({
-        content: '✅ Panel de tickets creado exitosamente'
+        content: '✅ Ticket panel created successfully'
       });
     } catch (error) {
       console.error('[TICKETPANEL] Error:', error);

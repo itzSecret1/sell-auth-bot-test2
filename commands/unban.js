@@ -7,17 +7,17 @@ import { config } from '../utils/config.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('unban')
-    .setDescription('Desbanear un usuario del servidor (Admin only)')
+    .setDescription('Unban a user from the server (Admin only)')
     .addStringOption((option) =>
       option
         .setName('user')
-        .setDescription('ID o tag del usuario a desbanear')
+        .setDescription('ID or tag of the user to unban')
         .setRequired(true)
     )
     .addStringOption((option) =>
       option
         .setName('reason')
-        .setDescription('Razón del unban (opcional)')
+        .setDescription('Reason for the unban (optional)')
         .setRequired(false)
         .setMaxLength(500)
     ),
@@ -30,13 +30,13 @@ export default {
       await interaction.deferReply({ ephemeral: true });
 
       const userInput = interaction.options.getString('user');
-      const reason = interaction.options.getString('reason') || 'Sin razón especificada';
+      const reason = interaction.options.getString('reason') || 'No reason specified';
 
       // Verificar que el bot pueda banear (necesario para unban)
       const botMember = await interaction.guild.members.fetch(interaction.client.user.id);
       if (!botMember.permissions.has(PermissionFlagsBits.BanMembers)) {
         await interaction.editReply({
-          content: '❌ El bot no tiene permisos para desbanear miembros'
+          content: '❌ The bot does not have permission to unban members'
         });
         return;
       }
@@ -44,7 +44,7 @@ export default {
       // Verificar que el usuario que ejecuta el comando tenga permisos
       if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
         await interaction.editReply({
-          content: '❌ No tienes permisos para desbanear miembros'
+          content: '❌ You do not have permission to unban members'
         });
         return;
       }
@@ -55,7 +55,7 @@ export default {
         bannedUsers = await interaction.guild.bans.fetch();
       } catch (fetchError) {
         await interaction.editReply({
-          content: '❌ Error al obtener la lista de baneados'
+          content: '❌ Error fetching the ban list'
         });
         return;
       }
@@ -86,7 +86,7 @@ export default {
 
       if (!targetBan) {
         await interaction.editReply({
-          content: `❌ Usuario no encontrado en la lista de baneados: \`${userInput}\``
+          content: `❌ User not found in the ban list: \`${userInput}\``
         });
         return;
       }
@@ -98,10 +98,10 @@ export default {
         // Crear embed de confirmación
         const unbanEmbed = new EmbedBuilder()
           .setColor(0x00ff00)
-          .setTitle('✅ Usuario Desbaneado')
+          .setTitle('✅ User Unbanned')
           .addFields(
             {
-              name: '👤 Usuario',
+              name: '👤 User',
               value: `${targetBan.user} (${targetBan.user.tag})`,
               inline: true
             },
@@ -111,18 +111,18 @@ export default {
               inline: true
             },
             {
-              name: '👮 Desbaneado por',
+              name: '👮 Unbanned by',
               value: `${interaction.user} (${interaction.user.tag})`,
               inline: true
             },
             {
-              name: '📝 Razón',
+              name: '📝 Reason',
               value: reason,
               inline: false
             },
             {
-              name: '📋 Razón del ban original',
-              value: targetBan.reason || 'Sin razón',
+              name: '📋 Original Ban Reason',
+              value: targetBan.reason || 'No reason',
               inline: false
             }
           )
@@ -149,15 +149,15 @@ export default {
       } catch (unbanError) {
         console.error('[UNBAN] Error al desbanear:', unbanError);
         
-        let errorMsg = 'Error desconocido al desbanear';
+        let errorMsg = 'Unknown error while unbanning';
         if (unbanError.message.includes('Missing Permissions')) {
-          errorMsg = 'El bot no tiene permisos para desbanear';
+          errorMsg = 'The bot does not have permission to unban';
         } else {
           errorMsg = unbanError.message;
         }
 
         await interaction.editReply({
-          content: `❌ Error al desbanear: ${errorMsg}`
+          content: `❌ Error unbanning user: ${errorMsg}`
         });
 
         ErrorLog.log('unban', unbanError, {

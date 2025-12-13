@@ -30,11 +30,11 @@ async function getVariantStock(api, productId, variantId) {
 export default {
   data: new SlashCommandBuilder()
     .setName('confirm-order')
-    .setDescription('Confirmar una orden pendiente (Owner only)')
+    .setDescription('Confirm a pending order (Owner only)')
     .addStringOption((option) =>
       option
         .setName('order_id')
-        .setDescription('ID de la orden a confirmar')
+        .setDescription('ID of the order to confirm')
         .setRequired(true)
         .setAutocomplete(true)
     ),
@@ -76,7 +76,7 @@ export default {
       
       if (!adminRoleId || !interaction.member.roles.cache.has(adminRoleId)) {
         await interaction.editReply({
-          content: '❌ No tienes permiso para usar este comando. Necesitas el rol de administrador.'
+          content: '❌ You do not have permission to use this command. You need the administrator role.'
         });
         return;
       }
@@ -86,14 +86,14 @@ export default {
 
       if (!order) {
         await interaction.editReply({
-          content: `❌ Orden no encontrada: ${orderId}`
+          content: `❌ Order not found: ${orderId}`
         });
         return;
       }
 
       if (order.status !== 'pending') {
         await interaction.editReply({
-          content: `❌ Esta orden ya fue procesada (Estado: ${order.status})`
+          content: `❌ This order has already been processed (Status: ${order.status})`
         });
         return;
       }
@@ -107,7 +107,7 @@ export default {
 
       if (!confirmResult.success) {
         await interaction.editReply({
-          content: `❌ Error al confirmar: ${confirmResult.message}`
+          content: `❌ Error confirming order: ${confirmResult.message}`
         });
         return;
       }
@@ -122,7 +122,7 @@ export default {
         
         if (!productData) {
           await interaction.editReply({
-            content: `❌ Producto no encontrado en caché`
+            content: `❌ Product not found in cache`
           });
           return;
         }
@@ -130,7 +130,7 @@ export default {
         const variantData = productData.variants?.[order.variantId.toString()];
         if (!variantData) {
           await interaction.editReply({
-            content: `❌ Variante no encontrada en caché`
+            content: `❌ Variant not found in cache`
           });
           return;
         }
@@ -140,7 +140,7 @@ export default {
 
         if (deliverablesArray.length < order.quantity) {
           await interaction.editReply({
-            content: `❌ Stock insuficiente. Disponible: ${deliverablesArray.length}, Solicitado: ${order.quantity}`
+            content: `❌ Insufficient stock. Available: ${deliverablesArray.length}, Requested: ${order.quantity}`
           });
           // Rechazar la orden
           PendingOrders.rejectOrder(orderId);
@@ -179,28 +179,28 @@ export default {
           
           const embed = new EmbedBuilder()
             .setColor(0x00ff00)
-            .setTitle('✅ Orden Confirmada')
-            .setDescription(`Tu orden **${orderId}** ha sido confirmada y procesada.`)
+            .setTitle('✅ Order Confirmed')
+            .setDescription(`Your order **${orderId}** has been confirmed and processed.`)
             .addFields(
               {
-                name: '🏪 Producto',
+                name: '🏪 Product',
                 value: order.productName,
                 inline: true
               },
               {
-                name: '🎮 Variante',
+                name: '🎮 Variant',
                 value: order.variantName,
                 inline: true
               },
               {
-                name: '📦 Cantidad',
+                name: '📦 Quantity',
                 value: order.quantity.toString(),
                 inline: true
               },
               {
-                name: '📋 Items Extraídos',
+                name: '📋 Extracted Items',
                 value: removedItems.slice(0, 10).map((item, i) => `${i + 1}. ${item.substring(0, 80)}`).join('\n') + 
-                  (removedItems.length > 10 ? `\n... y ${removedItems.length - 10} más` : ''),
+                  (removedItems.length > 10 ? `\n... and ${removedItems.length - 10} more` : ''),
                 inline: false
               }
             )
@@ -214,21 +214,21 @@ export default {
         // Responder al owner (sin mostrar información del ticket, solo lo básico)
         const confirmEmbed = new EmbedBuilder()
           .setColor(0x00ff00)
-          .setTitle('✅ Orden Confirmada y Procesada')
-          .setDescription(`La orden ha sido confirmada exitosamente.`)
+          .setTitle('✅ Order Confirmed and Processed')
+          .setDescription(`The order has been confirmed successfully.`)
           .addFields(
             {
-              name: '👤 Usuario',
+              name: '👤 User',
               value: user ? `${user}` : order.userName,
               inline: true
             },
             {
-              name: '📦 Cantidad Procesada',
+              name: '📦 Processed Quantity',
               value: order.quantity.toString(),
               inline: true
             },
             {
-              name: '📊 Stock Restante',
+              name: '📊 Remaining Stock',
               value: remainingStock.toString(),
               inline: true
             }
@@ -254,7 +254,7 @@ export default {
         });
 
         await interaction.editReply({
-          content: `❌ Error al procesar la orden: ${processError.message}`
+          content: `❌ Error processing the order: ${processError.message}`
         });
       }
 

@@ -61,7 +61,7 @@ export default {
 
       if (!existsSync(backupPath)) {
         await interaction.editReply({
-          content: `❌ Archivo de backup no encontrado: ${backupFileName}`
+          content: `❌ Backup file not found: ${backupFileName}`
         });
         return;
       }
@@ -72,13 +72,18 @@ export default {
 
       if (vouchesCount === 0) {
         await interaction.editReply({
-          content: '❌ El archivo de backup está vacío'
+          content: '❌ The backup file is empty'
         });
         return;
       }
 
       // Hacer backup del estado actual antes de restaurar
-      const currentData = JSON.parse(readFileSync(VOUCHES_FILE, 'utf-8').catch(() => '{"vouches":[],"nextNumber":1}'));
+      let currentData;
+      try {
+        currentData = JSON.parse(readFileSync(VOUCHES_FILE, 'utf-8'));
+      } catch (readError) {
+        currentData = { vouches: [], nextNumber: 1 };
+      }
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const preRestoreBackup = join(BACKUPS_DIR, `pre_restore_${timestamp}.json`);
       writeFileSync(preRestoreBackup, JSON.stringify(currentData, null, 2), 'utf-8');
@@ -118,12 +123,12 @@ export default {
         embeds: [embed]
       });
 
-      console.log(`[VOUCHES-RESTORE] ✅ Vouches restaurados desde ${backupFileName} (${vouchesCount} vouches)`);
+      console.log(`[VOUCHES-RESTORE] ✅ Vouches restored from ${backupFileName} (${vouchesCount} vouches)`);
 
     } catch (error) {
       console.error('[VOUCHES-RESTORE] Error:', error);
       await interaction.editReply({
-        content: `❌ Error al restaurar vouches: ${error.message}`
+        content: `❌ Error restoring vouches: ${error.message}`
       }).catch(() => {});
     }
   }

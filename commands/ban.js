@@ -8,24 +8,24 @@ import { CommandSpamDetector } from '../utils/CommandSpamDetector.js';
 export default {
   data: new SlashCommandBuilder()
     .setName('ban')
-    .setDescription('Banear un usuario del servidor (Admin only)')
+    .setDescription('Ban a user from the server (Admin only)')
     .addUserOption((option) =>
       option
         .setName('user')
-        .setDescription('Usuario a banear')
+        .setDescription('User to ban')
         .setRequired(true)
     )
     .addStringOption((option) =>
       option
         .setName('reason')
-        .setDescription('Razón del ban (opcional)')
+        .setDescription('Reason for the ban (optional)')
         .setRequired(false)
         .setMaxLength(500)
     )
     .addIntegerOption((option) =>
       option
         .setName('delete_days')
-        .setDescription('Días de mensajes a eliminar (0-7)')
+        .setDescription('Days of messages to delete (0-7)')
         .setRequired(false)
         .setMinValue(0)
         .setMaxValue(7)
@@ -39,13 +39,13 @@ export default {
       await interaction.deferReply({ ephemeral: true });
 
       const targetUser = interaction.options.getUser('user');
-      const reason = interaction.options.getString('reason') || 'Sin razón especificada';
+      const reason = interaction.options.getString('reason') || 'No reason specified';
       const deleteDays = interaction.options.getInteger('delete_days') || 0;
 
       // Verificar que el usuario no se esté baneando a sí mismo
       if (targetUser.id === interaction.user.id) {
         await interaction.editReply({
-          content: '❌ No puedes banearte a ti mismo'
+          content: '❌ You cannot ban yourself'
         });
         return;
       }
@@ -54,7 +54,7 @@ export default {
       const botMember = await interaction.guild.members.fetch(interaction.client.user.id);
       if (!botMember.permissions.has(PermissionFlagsBits.BanMembers)) {
         await interaction.editReply({
-          content: '❌ El bot no tiene permisos para banear miembros'
+          content: '❌ The bot does not have permission to ban members'
         });
         return;
       }
@@ -62,7 +62,7 @@ export default {
       // Verificar que el usuario que ejecuta el comando tenga permisos
       if (!interaction.member.permissions.has(PermissionFlagsBits.BanMembers)) {
         await interaction.editReply({
-          content: '❌ No tienes permisos para banear miembros'
+          content: '❌ You do not have permission to ban members'
         });
         return;
       }
@@ -84,14 +84,14 @@ export default {
 
         if (targetHighestRole >= executorHighestRole) {
           await interaction.editReply({
-            content: '❌ No puedes banear a un usuario con un rol igual o superior al tuyo'
+            content: '❌ You cannot ban a user with a role equal to or higher than yours'
           });
           return;
         }
 
         if (targetHighestRole >= botHighestRole) {
           await interaction.editReply({
-            content: '❌ No puedo banear a un usuario con un rol igual o superior al mío'
+            content: '❌ I cannot ban a user with a role equal to or higher than mine'
           });
           return;
         }
@@ -107,10 +107,10 @@ export default {
         // Crear embed de confirmación
         const banEmbed = new EmbedBuilder()
           .setColor(0xff0000)
-          .setTitle('🚫 Usuario Baneado')
+          .setTitle('🚫 User Banned')
           .addFields(
             {
-              name: '👤 Usuario',
+              name: '👤 User',
               value: `${targetUser} (${targetUser.tag})`,
               inline: true
             },
@@ -120,18 +120,18 @@ export default {
               inline: true
             },
             {
-              name: '👮 Baneado por',
+              name: '👮 Banned by',
               value: `${interaction.user} (${interaction.user.tag})`,
               inline: true
             },
             {
-              name: '📝 Razón',
+              name: '📝 Reason',
               value: reason,
               inline: false
             },
             {
-              name: '🗑️ Mensajes eliminados',
-              value: `${deleteDays} día(s)`,
+              name: '🗑️ Messages Deleted',
+              value: `${deleteDays} day(s)`,
               inline: true
             }
           )
@@ -149,12 +149,12 @@ export default {
           
           if (spamChannel) {
             await spamChannel.send({
-              content: `🚫 **Usuario Baneado**\n\n` +
-                `**Usuario:** ${targetUser} (${targetUser.tag})\n` +
+              content: `🚫 **User Banned**\n\n` +
+                `**User:** ${targetUser} (${targetUser.tag})\n` +
                 `**ID:** ${targetUser.id}\n` +
-                `**Razón:** ${reason}\n` +
-                `**Baneado por:** ${interaction.user} (${interaction.user.tag})\n` +
-                `**Mensajes eliminados:** ${deleteDays} día(s)`
+                `**Reason:** ${reason}\n` +
+                `**Banned by:** ${interaction.user} (${interaction.user.tag})\n` +
+                `**Messages Deleted:** ${deleteDays} day(s)`
             });
           }
         } catch (notifyError) {
@@ -178,17 +178,17 @@ export default {
       } catch (banError) {
         console.error('[BAN] Error al banear:', banError);
         
-        let errorMsg = 'Error desconocido al banear';
+        let errorMsg = 'Unknown error while banning';
         if (banError.message.includes('Missing Permissions')) {
-          errorMsg = 'El bot no tiene permisos para banear a este usuario';
+          errorMsg = 'The bot does not have permission to ban this user';
         } else if (banError.message.includes('hierarchy')) {
-          errorMsg = 'No puedo banear a este usuario debido a la jerarquía de roles';
+          errorMsg = 'I cannot ban this user due to role hierarchy';
         } else {
           errorMsg = banError.message;
         }
 
         await interaction.editReply({
-          content: `❌ Error al banear: ${errorMsg}`
+          content: `❌ Error banning user: ${errorMsg}`
         });
 
         ErrorLog.log('ban', banError, {
