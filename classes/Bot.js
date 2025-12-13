@@ -844,4 +844,120 @@ export class Bot {
 
     console.log(`[SETUP] Bot configurado en servidor: ${interaction.guild.name} (${session.guildId})`);
   }
+
+  onMessageCreate() {
+    this.client.on('messageCreate', async (message) => {
+      // Ignorar mensajes del bot
+      if (message.author.bot) return;
+      
+      // Verificar que es un mensaje en un canal de ticket
+      const { TicketManager } = await import('../utils/TicketManager.js');
+      const ticket = TicketManager.getTicketByChannel(message.channel.id);
+      
+      if (!ticket) return;
+      
+      // Solo procesar tickets de tipo "replaces"
+      if (ticket.category.toLowerCase() !== 'replaces') return;
+
+      try {
+        const content = message.content.toLowerCase();
+        const hasImages = message.attachments.size > 0;
+        
+        // Detectar frases como "account doesn't work" o "acc don't work"
+        const accountIssues = [
+          'account doesn\'t work',
+          'account don\'t work',
+          'acc doesn\'t work',
+          'acc don\'t work',
+          'account not working',
+          'acc not working',
+          'account broken',
+          'acc broken'
+        ];
+        
+        const hasAccountIssue = accountIssues.some(phrase => content.includes(phrase));
+        
+        // Si detecta problema de cuenta y no hay fotos, pedir invoice
+        if (hasAccountIssue && !hasImages) {
+          await message.channel.send({
+            content: `📋 **Invoice Required**\n\nPlease provide your invoice number and a screenshot as proof.`
+          });
+          return;
+        }
+        
+        // Si hay fotos pero no se detecta invoice, también pedir invoice
+        if (hasImages && !this.detectInvoice(content)) {
+          await message.channel.send({
+            content: `📋 **Invoice Required**\n\nPlease provide your invoice number along with the screenshot.`
+          });
+          return;
+        }
+        
+        // Detectar invoice (combinación de números y letras)
+        const invoiceMatch = this.detectInvoice(content);
+        
+        // Si detecta invoice + foto, ejecutar automáticamente replace-message
+        if (invoiceMatch && hasImages) {
+          // Esperar un poco para asegurar que el mensaje se procesó
+          setTimeout(async () => {
+            try {
+              // Simular ejecución del comando replace-message
+              const { default: replaceMessageCommand } = await import('../commands/replace-message.js');
+              
+              // Crear una interacción simulada para el comando
+              const fakeInteraction = {
+                options: {
+                  getChannel: () => message.channel,
+                  getString: () => null
+                },
+                guild: message.guild,
+                channel: message.channel,
+                user: message.client.user,
+                member: message.guild.members.me,
+                editReply: async (data) => {
+                  // Enviar mensaje de confirmación
+                  await message.channel.send({
+                    content: `✅ **Replacement Processed Automatically**\n\nInvoice: ${invoiceMatch}\nProof: Attached\n\nThe staff will process your replacement shortly.`
+                  });
+                },
+                deferReply: async () => {},
+                reply: async () => {}
+              };
+              
+              await replaceMessageCommand.execute(fakeInteraction, this.api);
+              
+              console.log(`[AUTO-REPLACE] Invoice ${invoiceMatch} detectado en ticket ${ticket.id}, replace-message ejecutado automáticamente`);
+            } catch (error) {
+              console.error('[AUTO-REPLACE] Error:', error);
+            }
+          }, 1000);
+        }
+        
+      } catch (error) {
+        console.error('[TICKET MESSAGE] Error procesando mensaje:', error);
+      }
+    });
+  }
+
+  detectInvoice(text) {
+    // Detectar patrones comunes de invoice:
+    // - INV-12345
+    // - Invoice: ABC123
+    // - #12345
+    // - Combinaciones de letras y números (mínimo 5 caracteres)
+    const patterns = [
+      /(?:invoice|inv)[\s:]*([a-z0-9-]{5,})/i,
+      /#([a-z0-9]{5,})/i,
+      /\b([a-z]{2,}\d{3,}|\d{3,}[a-z]{2,})\b/i
+    ];
+    
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        return match[1] || match[0];
+      }
+    }
+    
+    return null;
+  }
 }

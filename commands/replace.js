@@ -464,6 +464,21 @@ export default {
       embed.addFields(fields);
       await interaction.editReply({ embeds: [embed] });
 
+      // Verificar si estamos en un ticket y renombrarlo automáticamente
+      const { TicketManager } = await import('../utils/TicketManager.js');
+      const ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+      
+      if (ticket) {
+        try {
+          const ticketId = ticket.id;
+          const newName = `✅-done-${ticketId.toLowerCase()}`;
+          await interaction.channel.setName(newName);
+          console.log(`[REPLACE] Ticket ${ticketId} renombrado automáticamente a "${newName}"`);
+        } catch (renameError) {
+          console.error('[REPLACE] Error al renombrar ticket:', renameError);
+        }
+      }
+
       // Log success
       console.log(
         `[REPLACE] ✅ SUCCESS: ${quantity} items removed from ${productData.productName} - ${variantData.name}`
