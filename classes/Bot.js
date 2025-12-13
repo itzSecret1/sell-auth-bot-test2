@@ -170,6 +170,7 @@ export class Bot {
   }
 
   async registerIndividualCommands() {
+    const startTime = Date.now();
     try {
       const rest = new REST({ version: '9' }).setToken(config.BOT_TOKEN);
       
@@ -183,6 +184,7 @@ export class Bot {
       }
 
       console.log(`[BOT] 📋 Registering commands in ${guilds.size} server(s)...`);
+      console.log(`[BOT] 📊 Total commands to register: ${this.slashCommands.length}`);
 
       for (const [guildId, guild] of guilds) {
         try {
@@ -208,8 +210,20 @@ export class Bot {
             // Register new commands using REST API (batch operation)
             if (this.slashCommands.length > 0) {
               console.log(`[BOT] 📝 Registering ${this.slashCommands.length} command(s) in ${guild.name}...`);
-              const registered = await rest.put(route, { body: this.slashCommands });
-              console.log(`[BOT] ✅ ${guild.name}: ${registered.length}/${this.slashCommands.length} commands registered successfully`);
+              
+              // Agregar timeout para evitar que se quede atascado
+              const registerPromise = rest.put(route, { body: this.slashCommands });
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Command registration timeout (30s)')), 30000)
+              );
+              
+              try {
+                const registered = await Promise.race([registerPromise, timeoutPromise]);
+                console.log(`[BOT] ✅ ${guild.name}: ${registered.length}/${this.slashCommands.length} commands registered successfully`);
+              } catch (registerError) {
+                console.error(`[BOT] ❌ Error registering commands in batch for ${guild.name}:`, registerError.message);
+                throw registerError; // Lanzar error para que use el fallback
+              }
             }
           } catch (restError) {
             // Fallback to individual command creation
@@ -217,36 +231,59 @@ export class Bot {
             
             try {
               const existing = await guild.commands.fetch();
+              console.log(`[BOT] 🗑️  Deleting ${existing.size} existing command(s) in ${guild.name}...`);
               for (const cmd of existing.values()) {
                 await guild.commands.delete(cmd.id).catch(() => {});
               }
-            } catch (e) {}
+            } catch (e) {
+              console.warn(`[BOT] ⚠️  Error deleting existing commands: ${e.message}`);
+            }
 
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000)); // Esperar más tiempo después de eliminar
 
             let success = 0;
-            for (const cmd of this.slashCommands) {
+            let failed = 0;
+            const totalCommands = this.slashCommands.length;
+            
+            console.log(`[BOT] 📝 Registering ${totalCommands} command(s) individually in ${guild.name}...`);
+            
+            for (let i = 0; i < this.slashCommands.length; i++) {
+              const cmd = this.slashCommands[i];
               try {
                 await guild.commands.create(cmd);
                 success++;
-                await new Promise(r => setTimeout(r, 300));
+                if ((i + 1) % 10 === 0) {
+                  console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered...`);
+                }
+                // Rate limit: esperar más tiempo entre comandos
+                await new Promise(r => setTimeout(r, 500));
               } catch (err) {
+                failed++;
                 console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name}: ${err.message}`);
+                // Si es rate limit, esperar más tiempo
+                if (err.code === 50035 || err.status === 429) {
+                  console.log(`[BOT] ⏳ Rate limited, waiting 5 seconds...`);
+                  await new Promise(r => setTimeout(r, 5000));
+                }
               }
             }
             
-            console.log(`[BOT] ✅ ${guild.name}: ${success}/${this.slashCommands.length} commands registered (fallback method)`);
+            console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (fallback method)`);
           }
         } catch (error) {
           console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, error.message);
         }
       }
       
-      console.log(`[BOT] ✅ REGISTRATION COMPLETE in all servers`);
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[BOT] ✅ REGISTRATION COMPLETE in all servers (took ${elapsedTime}s)`);
     } catch (error) {
-      console.error(`[BOT] Registration error:`, error.message);
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.error(`[BOT] ❌ Registration error after ${elapsedTime}s:`, error.message);
+      console.error(`[BOT] Stack trace:`, error.stack);
     } finally {
       this.isRegisteringCommands = false;
+      console.log(`[BOT] 🔓 Command registration lock released`);
     }
   }
 
