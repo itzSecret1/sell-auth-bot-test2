@@ -80,6 +80,7 @@ export class Bot {
     });
 
     this.onInteractionCreate();
+    this.onMessageCreate();
 
     process.on('unhandledRejection', (reason, promise) => {
       console.error('[BOT] Unhandled Rejection at:', promise, 'reason:', reason);
