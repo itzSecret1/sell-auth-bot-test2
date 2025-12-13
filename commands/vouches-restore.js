@@ -123,7 +123,7 @@ export default {
         )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
-          text: `Powered by SellAuth Bot • Restored by ${interaction.user.username}`,
+          text: `Powered by itz_Secret_alt • Restored by ${interaction.user.username}`,
           iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
         })
         .setTimestamp();

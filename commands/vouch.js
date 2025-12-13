@@ -98,12 +98,16 @@ export default {
       vouchesData.vouches.push(vouch);
       saveVouches(vouchesData);
 
-      // Crear embed del vouch (formato simple como en la foto)
+      // Crear embed del vouch (formato mejorado)
       const vouchEmbed = new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('✨ New Vouch Created!')
-        .setDescription(message)
         .addFields(
+          {
+            name: '💬 Vouch',
+            value: message,
+            inline: false
+          },
           {
             name: '⭐ Rating',
             value: '⭐'.repeat(stars) + '☆'.repeat(5 - stars),
@@ -127,7 +131,7 @@ export default {
         )
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
         .setFooter({ 
-          text: `Powered by SellAuth Bot • Vouch #${vouchNumber}`,
+          text: `Powered by itz_Secret_alt • Vouch #${vouchNumber}`,
           iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
         })
         .setTimestamp();

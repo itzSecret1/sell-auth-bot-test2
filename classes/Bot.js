@@ -34,6 +34,7 @@ export class Bot {
     this.cooldowns = new Collection();
     this.queues = new Collection();
     this.isRegisteringCommands = false;
+    this.commandRefreshInterval = null;
 
     this.statusReporter = createStatusReporter(client);
     sessionManager.statusReporter = this.statusReporter;
@@ -58,7 +59,18 @@ export class Bot {
         TicketManager.startAutoCloseChecker(guild);
       });
       
-      console.log(`✅ Bot listo en ${this.client.guilds.cache.size} servidor(es)`);
+      // Programar refresh automático de comandos cada 4 horas
+      if (!this.commandRefreshInterval) {
+        this.commandRefreshInterval = setInterval(() => {
+          console.log('[BOT] 🔄 Auto-refreshing commands (scheduled refresh every 4 hours)...');
+          if (!this.isRegisteringCommands) {
+            this.registerSlashCommands();
+          }
+        }, 4 * 60 * 60 * 1000); // 4 horas
+        console.log('[BOT] ✅ Auto-refresh scheduled: Commands will refresh every 4 hours');
+      }
+      
+      console.log(`✅ Bot ready in ${this.client.guilds.cache.size} server(s)`);
     });
 
     // Registrar comandos cuando el bot se añade a un nuevo servidor
@@ -165,45 +177,72 @@ export class Bot {
       const guilds = this.client.guilds.cache;
       
       if (guilds.size === 0) {
-        console.log('[BOT] ⚠️  No hay servidores disponibles. Los comandos se registrarán cuando el bot se añada a un servidor.');
+        console.log('[BOT] ⚠️  No servers available. Commands will be registered when the bot is added to a server.');
         this.isRegisteringCommands = false;
         return;
       }
 
-      console.log(`[BOT] 📋 Registrando comandos en ${guilds.size} servidor(es)...`);
+      console.log(`[BOT] 📋 Registering commands in ${guilds.size} server(s)...`);
 
       for (const [guildId, guild] of guilds) {
         try {
-          console.log(`[BOT] 📋 Registrando comandos en: ${guild.name} (${guildId})`);
+          console.log(`[BOT] 📋 Registering commands in: ${guild.name} (${guildId})`);
           
-          // Clear first
+          // Use REST API for more reliable command registration
           try {
-            const existing = await guild.commands.fetch();
-            for (const cmd of existing.values()) {
-              await guild.commands.delete(cmd.id).catch(() => {});
+            const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
+            
+            // Get existing commands
+            const existingCommands = await rest.get(route).catch(() => []);
+            
+            // Delete existing commands if any
+            if (existingCommands.length > 0) {
+              console.log(`[BOT] 🗑️  Deleting ${existingCommands.length} existing command(s) in ${guild.name}...`);
+              for (const cmd of existingCommands) {
+                await rest.delete(Routes.applicationGuildCommand(this.client.user.id, guildId, cmd.id))
+                  .catch(err => console.warn(`[BOT] ⚠️  Failed to delete command ${cmd.name}: ${err.message}`));
+              }
+              await new Promise(r => setTimeout(r, 2000)); // Wait 2 seconds after deletion
             }
-          } catch (e) {}
-
-          await new Promise(r => setTimeout(r, 1000));
-
-          let success = 0;
-          for (const cmd of this.slashCommands) {
+            
+            // Register new commands using REST API (batch operation)
+            if (this.slashCommands.length > 0) {
+              console.log(`[BOT] 📝 Registering ${this.slashCommands.length} command(s) in ${guild.name}...`);
+              const registered = await rest.put(route, { body: this.slashCommands });
+              console.log(`[BOT] ✅ ${guild.name}: ${registered.length}/${this.slashCommands.length} commands registered successfully`);
+            }
+          } catch (restError) {
+            // Fallback to individual command creation
+            console.warn(`[BOT] ⚠️  REST API failed, using fallback method for ${guild.name}: ${restError.message}`);
+            
             try {
-              await guild.commands.create(cmd);
-              success++;
-              await new Promise(r => setTimeout(r, 300));
-            } catch (err) {
-              console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name}: ${err.message}`);
+              const existing = await guild.commands.fetch();
+              for (const cmd of existing.values()) {
+                await guild.commands.delete(cmd.id).catch(() => {});
+              }
+            } catch (e) {}
+
+            await new Promise(r => setTimeout(r, 1000));
+
+            let success = 0;
+            for (const cmd of this.slashCommands) {
+              try {
+                await guild.commands.create(cmd);
+                success++;
+                await new Promise(r => setTimeout(r, 300));
+              } catch (err) {
+                console.warn(`[BOT] ⚠️  Failed to create ${cmd.name} in ${guild.name}: ${err.message}`);
+              }
             }
+            
+            console.log(`[BOT] ✅ ${guild.name}: ${success}/${this.slashCommands.length} commands registered (fallback method)`);
           }
-          
-          console.log(`[BOT] ✅ ${guild.name}: ${success}/${this.slashCommands.length} comandos registrados`);
         } catch (error) {
-          console.error(`[BOT] Error registrando comandos en ${guild.name}:`, error.message);
+          console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, error.message);
         }
       }
       
-      console.log(`[BOT] ✅ REGISTRATION COMPLETE en todos los servidores`);
+      console.log(`[BOT] ✅ REGISTRATION COMPLETE in all servers`);
     } catch (error) {
       console.error(`[BOT] Registration error:`, error.message);
     } finally {
