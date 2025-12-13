@@ -352,6 +352,22 @@ export class Bot {
 
     // Reclamar ticket
     if (customId.startsWith('ticket_claim_')) {
+      // Verificar que el usuario tenga rol de staff o admin
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      
+      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      
+      if (!hasStaffRole && !hasAdminRole) {
+        await interaction.reply({
+          content: '❌ Solo el staff puede reclamar tickets',
+          ephemeral: true
+        });
+        return;
+      }
+
       await interaction.deferUpdate();
       const ticketId = customId.replace('ticket_claim_', '');
       const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
@@ -367,6 +383,22 @@ export class Bot {
 
     // Cerrar ticket
     if (customId.startsWith('ticket_close_')) {
+      // Verificar que el usuario tenga rol de staff o admin
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      
+      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      
+      if (!hasStaffRole && !hasAdminRole) {
+        await interaction.reply({
+          content: '❌ Solo el staff puede cerrar tickets',
+          ephemeral: true
+        });
+        return;
+      }
+
       const ticketId = customId.replace('ticket_close_', '');
       const ticket = TicketManager.getTicket(ticketId);
       
@@ -380,9 +412,7 @@ export class Bot {
 
       // Verificar si necesita razón
       const member = interaction.member;
-      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
-      const staffRoleId = guildConfig?.staffRoleId;
-      const needsReason = staffRoleId ? member.roles.cache.has(staffRoleId) : false;
+      const needsReason = hasStaffRole; // Solo staff necesita razón, admin no
 
       if (needsReason) {
         // Mostrar modal para razón
