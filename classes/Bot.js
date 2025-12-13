@@ -303,8 +303,8 @@ export class Bot {
           await member.ban({ reason: reason, deleteMessageDays: 0 });
           
           // Enviar mensaje al canal de spam
-          const spamChannelId = CommandSpamDetector.getSpamChannelId();
-          const spamChannel = await interaction.guild.channels.fetch(spamChannelId).catch(() => null);
+          const spamChannelId = CommandSpamDetector.getSpamChannelId(interaction.guild.id);
+          const spamChannel = spamChannelId ? await interaction.guild.channels.fetch(spamChannelId).catch(() => null) : null;
           
           if (spamChannel) {
             await spamChannel.send({

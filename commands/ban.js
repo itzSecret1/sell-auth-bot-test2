@@ -5,8 +5,6 @@ import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
 import { CommandSpamDetector } from '../utils/CommandSpamDetector.js';
 
-const SPAM_CHANNEL_ID = '1445838663786172619';
-
 export default {
   data: new SlashCommandBuilder()
     .setName('ban')
@@ -146,7 +144,8 @@ export default {
 
         // Enviar notificación al canal de spam
         try {
-          const spamChannel = await interaction.guild.channels.fetch(SPAM_CHANNEL_ID).catch(() => null);
+          const spamChannelId = CommandSpamDetector.getSpamChannelId(interaction.guild.id);
+          const spamChannel = spamChannelId ? await interaction.guild.channels.fetch(spamChannelId).catch(() => null) : null;
           
           if (spamChannel) {
             await spamChannel.send({

@@ -1,6 +1,7 @@
 import { Collection } from 'discord.js';
+import { GuildConfig } from './GuildConfig.js';
+import { config } from './config.js';
 
-const SPAM_CHANNEL_ID = '1445838663786172619';
 const SPAM_THRESHOLD = 2; // Más de 2 veces
 const SPAM_TIME_WINDOW = 7000; // 7 segundos
 
@@ -59,10 +60,17 @@ export class CommandSpamDetector {
   }
 
   /**
-   * Obtener el ID del canal de spam
+   * Obtener el ID del canal de spam para un servidor específico
    */
-  static getSpamChannelId() {
-    return SPAM_CHANNEL_ID;
+  static getSpamChannelId(guildId) {
+    if (guildId) {
+      const guildConfig = GuildConfig.getConfig(guildId);
+      if (guildConfig?.spamChannelId) {
+        return guildConfig.spamChannelId;
+      }
+    }
+    // Fallback a variable de entorno o valor por defecto
+    return config.BOT_SPAM_CHANNEL_ID || null;
   }
 
   /**

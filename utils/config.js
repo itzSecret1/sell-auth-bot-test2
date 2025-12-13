@@ -8,6 +8,7 @@ let config = {
   BOT_STAFF_ROLE_ID: process.env.BOT_STAFF_ROLE_ID || '',
   BOT_ADMIN_ROLE_ID: process.env.BOT_ADMIN_ROLE_ID || '',
   BOT_TRIAL_ADMIN_ROLE_ID: process.env.BOT_TRIAL_ADMIN_ROLE_ID || '',
+  BOT_SPAM_CHANNEL_ID: process.env.BOT_SPAM_CHANNEL_ID || '', // Canal para notificaciones de spam/bans
   SA_API_KEY: process.env.SA_API_KEY || '',
   SA_SHOP_ID: process.env.SA_SHOP_ID || '',
   LOG_CHANNEL_ID: process.env.LOG_CHANNEL_ID || ''

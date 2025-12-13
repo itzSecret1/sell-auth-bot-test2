@@ -43,6 +43,12 @@ export default {
         .setName('rating_channel')
         .setDescription('Canal para ratings de tickets (opcional)')
         .setRequired(false)
+    )
+    .addChannelOption((option) =>
+      option
+        .setName('spam_channel')
+        .setDescription('Canal para notificaciones de spam/bans (opcional)')
+        .setRequired(false)
     ),
 
   async execute(interaction) {
@@ -65,6 +71,7 @@ export default {
       const logChannel = interaction.options.getChannel('log_channel');
       const transcriptChannel = interaction.options.getChannel('transcript_channel');
       const ratingChannel = interaction.options.getChannel('rating_channel');
+      const spamChannel = interaction.options.getChannel('spam_channel');
 
       // Verificar permisos del bot
       const botMember = await interaction.guild.members.fetch(interaction.client.user.id);
@@ -97,6 +104,7 @@ export default {
         logChannelId: logChannel?.id || null,
         transcriptChannelId: transcriptChannel?.id || null,
         ratingChannelId: ratingChannel?.id || null,
+        spamChannelId: spamChannel?.id || null,
         configuredBy: interaction.user.id,
         configuredByUsername: interaction.user.username
       });
@@ -135,6 +143,11 @@ export default {
           {
             name: '⭐ Canal de Ratings',
             value: ratingChannel ? `${ratingChannel}` : 'No configurado',
+            inline: true
+          },
+          {
+            name: '🚫 Canal de Spam/Bans',
+            value: spamChannel ? `${spamChannel}` : 'No configurado',
             inline: true
           }
         )
