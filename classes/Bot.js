@@ -16,6 +16,7 @@ import { createAutoSyncScheduler } from '../utils/AutoSyncScheduler.js';
 import { createPredictiveAlerts } from '../utils/PredictiveAlerts.js';
 import { TicketManager } from '../utils/TicketManager.js';
 import { GuildConfig } from '../utils/GuildConfig.js';
+import { CommandSpamDetector } from '../utils/CommandSpamDetector.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -288,6 +289,66 @@ export class Bot {
       if (!interaction.isChatInputCommand()) return;
       const command = this.slashCommandsMap.get(interaction.commandName);
       if (!command) return;
+
+      // Verificar spam de comandos ANTES de procesar
+      const spamCheck = CommandSpamDetector.checkSpam(interaction.user.id, interaction.commandName);
+      
+      if (spamCheck.isSpam) {
+        // Usuario está haciendo spam, banearlo
+        try {
+          const member = interaction.member;
+          const reason = 'Repetido - Is he trying to steal? So you say that he has been banned for trying to steal.';
+          
+          // Intentar banear
+          await member.ban({ reason: reason, deleteMessageDays: 0 });
+          
+          // Enviar mensaje al canal de spam
+          const spamChannelId = CommandSpamDetector.getSpamChannelId();
+          const spamChannel = await interaction.guild.channels.fetch(spamChannelId).catch(() => null);
+          
+          if (spamChannel) {
+            await spamChannel.send({
+              content: `🚫 **Usuario Baneado**\n\n` +
+                `**Usuario:** ${interaction.user} (${interaction.user.tag})\n` +
+                `**ID:** ${interaction.user.id}\n` +
+                `**Razón:** ${reason}\n` +
+                `**Comando:** \`/${interaction.commandName}\`\n` +
+                `**Uso repetido:** ${spamCheck.count} veces en menos de 7 segundos`
+            });
+          }
+          
+          console.log(`[SPAM-DETECTOR] 🚫 Usuario ${interaction.user.tag} (${interaction.user.id}) baneado por spam de comandos`);
+          
+          // Limpiar historial del usuario
+          CommandSpamDetector.clearUserHistory(interaction.user.id);
+          
+        } catch (banError) {
+          console.error('[SPAM-DETECTOR] Error al banear usuario:', banError);
+          
+          // Si no se puede banear, al menos notificar
+          try {
+            const spamChannelId = CommandSpamDetector.getSpamChannelId();
+            const spamChannel = await interaction.guild.channels.fetch(spamChannelId).catch(() => null);
+            
+            if (spamChannel) {
+              await spamChannel.send({
+                content: `⚠️ **Intento de Spam Detectado**\n\n` +
+                  `**Usuario:** ${interaction.user} (${interaction.user.tag})\n` +
+                  `**ID:** ${interaction.user.id}\n` +
+                  `**Razón:** Repetido - Is he trying to steal?\n` +
+                  `**Comando:** \`/${interaction.commandName}\`\n` +
+                  `**Uso repetido:** ${spamCheck.count} veces en menos de 7 segundos\n` +
+                  `**Error al banear:** ${banError.message}`
+              });
+            }
+          } catch (notifyError) {
+            console.error('[SPAM-DETECTOR] Error al notificar:', notifyError);
+          }
+        }
+        
+        // No procesar el comando
+        return;
+      }
 
       if (!this.cooldowns.has(interaction.commandName)) {
         this.cooldowns.set(interaction.commandName, new Collection());
