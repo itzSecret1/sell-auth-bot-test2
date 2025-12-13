@@ -2,7 +2,7 @@ import { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } from 'discord.
 import { GuildConfig } from '../utils/GuildConfig.js';
 import { config } from '../utils/config.js';
 
-const AUTHORIZED_USER_ID = '1190738779015757914';
+const AUTHORIZED_USER_IDS = ['1190738779015757914', '1407024330633642005'];
 
 export default {
   data: new SlashCommandBuilder()
@@ -54,9 +54,9 @@ export default {
   async execute(interaction) {
     try {
       // Verificar que el usuario esté autorizado
-      if (interaction.user.id !== AUTHORIZED_USER_ID) {
+      if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
         await interaction.reply({
-          content: '❌ No tienes permiso para usar este comando. Solo el usuario autorizado puede configurar el bot.',
+          content: '❌ No tienes permiso para usar este comando. Solo los usuarios autorizados pueden configurar el bot.',
           ephemeral: true
         });
         return;
