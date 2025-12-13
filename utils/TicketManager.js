@@ -37,6 +37,11 @@ function saveTickets() {
   }
 }
 
+// Exportar función para uso externo
+export function saveTicketsData() {
+  saveTickets();
+}
+
 // Inicializar
 loadTickets();
 
@@ -368,20 +373,30 @@ export class TicketManager {
 
       await channel.permissionOverwrites.set(permissionOverwrites);
 
+      // Renombrar canal a formato "closed-XXXX" usando el ID del ticket
+      try {
+        const ticketNumber = ticket.id.replace('TKT-', '');
+        const newChannelName = `closed-${ticketNumber}`;
+        await channel.setName(newChannelName);
+        console.log(`[TICKET] Channel renamed to "${newChannelName}" after closing`);
+      } catch (renameError) {
+        console.error('[TICKET] Error renaming channel:', renameError);
+      }
+
       // Enviar mensaje informando que el ticket está cerrado y necesita reviews
       const closeNoticeEmbed = new EmbedBuilder()
         .setColor(0xff9900)
-        .setTitle('🔒 Ticket Closed - Mandatory Reviews')
-        .setDescription(`This ticket has been closed by staff.\n\n**⚠️ IMPORTANT:** You must complete the mandatory reviews to finalize the process.`)
+        .setTitle('🔒 Ticket Closed - Waiting for Evaluation')
+        .setDescription(`This ticket has been closed and is waiting for your evaluation.\n\n**⚠️ IMPORTANT:** You must complete the mandatory reviews to finalize the process.`)
         .addFields(
           {
             name: '📝 Instructions',
-            value: '1. Complete the **Service Rating** (mandatory)\n2. Complete the **Staff Rating** (mandatory)\n3. The ticket will close automatically after completing both reviews',
+            value: '1. Complete the **Service Rating** (mandatory)\n2. Complete the **Staff Rating** (mandatory)\n3. The ticket will be removed automatically after completing both reviews',
             inline: false
           },
           {
             name: '⏰ Time Limit',
-            value: 'If you do not complete the reviews within **24 hours**, the ticket will close automatically.',
+            value: 'If you do not complete the reviews within **24 hours**, the ticket will be automatically removed.',
             inline: false
           }
         )
@@ -626,58 +641,151 @@ export class TicketManager {
       const guildConfig = GuildConfig.getConfig(guild.id);
       const ratingChannelId = guildConfig?.ratingChannelId;
       
-      if (!ratingChannelId) {
-        console.warn('[TICKET] Rating channel not configured for this server');
-        return;
+      // Enviar ratings generales al canal de ratings (si está configurado)
+      if (ratingChannelId) {
+        const ratingChannel = await guild.channels.fetch(ratingChannelId).catch(() => null);
+        if (ratingChannel) {
+          const user = await guild.members.fetch(ticket.userId).catch(() => null);
+          const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
+
+          const ratingEmbed = new EmbedBuilder()
+            .setColor(0xffd700)
+            .setTitle('📊 Ticket Ratings')
+            .addFields(
+              {
+                name: '🎫 Ticket ID',
+                value: ticket.id,
+                inline: true
+              },
+              {
+                name: '👤 User',
+                value: user ? `${user}` : `User ID: ${ticket.userId}`,
+                inline: true
+              },
+              {
+                name: '💼 Category',
+                value: ticket.category,
+                inline: true
+              },
+              {
+                name: '⭐ Service Rating',
+                value: `${ticket.serviceRating || 'N/A'}/5`,
+                inline: true
+              },
+              {
+                name: '⭐ Staff Rating',
+                value: `${ticket.staffRating || 'N/A'}/5`,
+                inline: true
+              },
+              {
+                name: '👨‍💼 Claimed By',
+                value: claimedBy ? `${claimedBy}` : 'N/A',
+                inline: true
+              }
+            )
+            .setTimestamp();
+
+          await ratingChannel.send({ embeds: [ratingEmbed] });
+        }
       }
 
-      const ratingChannel = await guild.channels.fetch(ratingChannelId);
-      if (!ratingChannel) {
-        console.warn('[TICKET] Rating channel not found');
-        return;
+      // Enviar staff rating a Staff Rating Support Channel (todas las evaluaciones)
+      const staffRatingSupportChannelId = guildConfig?.staffRatingSupportChannelId;
+      if (staffRatingSupportChannelId && ticket.staffRating) {
+        const staffRatingSupportChannel = await guild.channels.fetch(staffRatingSupportChannelId).catch(() => null);
+        if (staffRatingSupportChannel) {
+          const user = await guild.members.fetch(ticket.userId).catch(() => null);
+          const staffMember = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
+
+          const staffRatingEmbed = new EmbedBuilder()
+            .setColor(0xffd700)
+            .setTitle('⭐ Staff Rating')
+            .addFields(
+              {
+                name: '👤 Evaluated by',
+                value: user ? `${user} (${user.user.tag})` : `User ID: ${ticket.userId}`,
+                inline: true
+              },
+              {
+                name: '👨‍💼 Staff Member',
+                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'N/A',
+                inline: true
+              },
+              {
+                name: '💼 Category',
+                value: ticket.category,
+                inline: true
+              },
+              {
+                name: '⭐ Rating',
+                value: `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}`,
+                inline: false
+              },
+              {
+                name: '📅 Date',
+                value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
+                inline: true
+              },
+              {
+                name: '🎫 Ticket ID',
+                value: ticket.id,
+                inline: true
+              }
+            )
+            .setTimestamp();
+
+          await staffRatingSupportChannel.send({ embeds: [staffRatingEmbed] });
+        }
       }
 
-      const user = await guild.members.fetch(ticket.userId);
-      const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
+      // Enviar staff rating a Staff Feedbacks Channel (solo 4+ estrellas)
+      const staffFeedbacksChannelId = guildConfig?.staffFeedbacksChannelId;
+      if (staffFeedbacksChannelId && ticket.staffRating && ticket.staffRating >= 4) {
+        const staffFeedbacksChannel = await guild.channels.fetch(staffFeedbacksChannelId).catch(() => null);
+        if (staffFeedbacksChannel) {
+          const user = await guild.members.fetch(ticket.userId).catch(() => null);
+          const staffMember = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
 
-      const ratingEmbed = new EmbedBuilder()
-        .setColor(0xffd700)
-        .setTitle('📊 Ticket Ratings')
-        .addFields(
-          {
-            name: '🎫 Ticket ID',
-            value: ticket.id,
-            inline: true
-          },
-          {
-            name: '👤 User',
-            value: `${user}`,
-            inline: true
-          },
-          {
-            name: '💼 Category',
-            value: ticket.category,
-            inline: true
-          },
-          {
-            name: '⭐ Service Rating',
-            value: `${ticket.serviceRating || 'N/A'}/5`,
-            inline: true
-          },
-          {
-            name: '⭐ Staff Rating',
-            value: `${ticket.staffRating || 'N/A'}/5`,
-            inline: true
-          },
-          {
-            name: '👨‍💼 Claimed By',
-            value: claimedBy ? `${claimedBy}` : 'N/A',
-            inline: true
-          }
-        )
-        .setTimestamp();
+          const feedbackEmbed = new EmbedBuilder()
+            .setColor(0x00ff00)
+            .setTitle('🌟 Positive Staff Feedback')
+            .addFields(
+              {
+                name: '👤 Evaluated by',
+                value: user ? `${user} (${user.user.tag})` : `User ID: ${ticket.userId}`,
+                inline: true
+              },
+              {
+                name: '👨‍💼 Staff Member',
+                value: staffMember ? `${staffMember} (${staffMember.user.tag})` : 'N/A',
+                inline: true
+              },
+              {
+                name: '💼 Category',
+                value: ticket.category,
+                inline: true
+              },
+              {
+                name: '⭐ Rating',
+                value: `${ticket.staffRating}/5 ${'⭐'.repeat(ticket.staffRating)}${'☆'.repeat(5 - ticket.staffRating)}`,
+                inline: false
+              },
+              {
+                name: '📅 Date',
+                value: `<t:${Math.floor(new Date().getTime() / 1000)}:F>`,
+                inline: true
+              },
+              {
+                name: '🎫 Ticket ID',
+                value: ticket.id,
+                inline: true
+              }
+            )
+            .setTimestamp();
 
-      await ratingChannel.send({ embeds: [ratingEmbed] });
+          await staffFeedbacksChannel.send({ embeds: [feedbackEmbed] });
+        }
+      }
     } catch (error) {
       console.error('[TICKET] Error sending ratings:', error);
     }
@@ -751,22 +859,55 @@ export class TicketManager {
       const claimedBy = ticket.claimedBy ? await guild.members.fetch(ticket.claimedBy).catch(() => null) : null;
       const closedBy = ticket.closedBy ? await guild.members.fetch(ticket.closedBy).catch(() => null) : null;
 
-      let transcript = `# Transcript - ${ticket.id}\n\n`;
-      transcript += `**Category:** ${ticket.category}\n`;
-      transcript += `**User:** ${user ? `<@${ticket.userId}>` : `User ID: ${ticket.userId}`}\n`;
-      if (claimedBy) {
-        transcript += `**Claimed by:** <@${ticket.claimedBy}>\n`;
+      // Obtener información del canal
+      const channelName = channel.name;
+      const channelId = channel.id;
+      
+      // Obtener participantes únicos del ticket
+      const participants = new Set();
+      participants.add(ticket.userId);
+      if (ticket.claimedBy) participants.add(ticket.claimedBy);
+      if (ticket.closedBy) participants.add(ticket.closedBy);
+      
+      // Agregar participantes de los mensajes
+      for (const msg of sortedMessages.values()) {
+        if (!msg.author.bot) {
+          participants.add(msg.author.id);
+        }
       }
+      
+      const participantsList = Array.from(participants).map(id => {
+        const member = guild.members.cache.get(id);
+        return member ? `<@${id}> (${member.user.tag})` : `User ID: ${id}`;
+      }).join('\n');
+
+      let transcript = `# Transcript - ${ticket.id}\n\n`;
+      transcript += `**Ticket Owner:** ${user ? `<@${ticket.userId}> (${user.user.tag})` : `User ID: ${ticket.userId}`}\n`;
+      transcript += `**Channel Name:** ${channelName}\n`;
+      transcript += `**Channel ID:** ${channelId}\n`;
+      transcript += `**Category:** ${ticket.category}\n`;
       transcript += `**Created:** ${new Date(ticket.createdAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' })}\n`;
       transcript += `**Closed:** ${ticket.closedAt ? new Date(ticket.closedAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'medium' }) : 'N/A'}\n`;
-      if (closedBy) {
-        transcript += `**Closed by:** <@${ticket.closedBy}>\n`;
+      
+      if (claimedBy) {
+        transcript += `**Claimed by:** <@${ticket.claimedBy}> (${claimedBy.user.tag})\n`;
       }
+      
+      if (closedBy) {
+        const closedByType = ticket.closedByType || 'staff';
+        const typeLabel = closedByType === 'owner' ? 'Owner/Admin' : closedByType === 'user' ? 'Ticket Creator' : 'Staff';
+        transcript += `**Closed by:** <@${ticket.closedBy}> (${closedBy.user.tag}) - ${typeLabel}\n`;
+      }
+      
       if (ticket.closeReason) {
         transcript += `**Close Reason:** ${ticket.closeReason}\n`;
+      } else {
+        transcript += `**Close Reason:** No reason provided\n`;
       }
+      
       transcript += `**Service Rating:** ${ticket.serviceRating || 'N/A'}/5\n`;
       transcript += `**Staff Rating:** ${ticket.staffRating || 'N/A'}/5\n`;
+      transcript += `\n**Participants in this ticket:**\n${participantsList}\n`;
       transcript += `\n--- Messages ---\n\n`;
 
       for (const msg of sortedMessages.values()) {
@@ -912,6 +1053,13 @@ export class TicketManager {
    */
   static getTicketByChannel(channelId) {
     return Object.values(ticketsData.tickets).find(t => t.channelId === channelId);
+  }
+
+  /**
+   * Guardar tickets (método estático)
+   */
+  static saveTickets() {
+    saveTickets();
   }
 }
 

@@ -554,12 +554,30 @@ export class Bot {
         return;
       }
 
-      // Si es staff/admin, verificar si necesita razón
-      const member = interaction.member;
-      const needsReason = hasStaffRole; // Solo staff necesita razón, admin no
+      // Si es owner/admin, puede cerrar sin razón (pero puede ponerla opcionalmente)
+      if (hasAdminRole) {
+        // Owner puede cerrar directamente sin razón, pero puede ponerla opcionalmente
+        const modal = new ModalBuilder()
+          .setCustomId(`ticket_close_modal_${ticketId}`)
+          .setTitle('Close Ticket');
 
-      if (needsReason) {
-        // Mostrar modal para razón
+        const reasonInput = new TextInputBuilder()
+          .setCustomId('close_reason')
+          .setLabel('Reason for closing (optional)')
+          .setStyle(TextInputStyle.Paragraph)
+          .setPlaceholder('Optional: Explain why you are closing this ticket...')
+          .setRequired(false)
+          .setMaxLength(500);
+
+        const actionRow = new ActionRowBuilder().addComponents(reasonInput);
+        modal.addComponents(actionRow);
+
+        await interaction.showModal(modal);
+        return;
+      }
+
+      // Si es staff, necesita razón obligatoria
+      if (hasStaffRole) {
         const modal = new ModalBuilder()
           .setCustomId(`ticket_close_modal_${ticketId}`)
           .setTitle('Close Ticket');
@@ -721,23 +739,33 @@ export class Bot {
     // Modal para cerrar ticket
     if (interaction.customId.startsWith('ticket_close_modal_')) {
       const ticketId = interaction.customId.replace('ticket_close_modal_', '');
-      const closeReason = interaction.fields.getTextInputValue('close_reason');
-
-      if (!closeReason || closeReason.trim().length === 0) {
-        await interaction.reply({
-          content: '❌ Reason is required',
-          ephemeral: true
-        });
-        return;
-      }
+      const closeReason = interaction.fields.getTextInputValue('close_reason') || null;
 
       await interaction.deferUpdate();
       
       const ticket = TicketManager.getTicket(ticketId);
       const isTicketCreator = ticket && ticket.userId === interaction.user.id;
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
       
-      // Si es el creador del ticket, cerrar directamente sin reviews
-      if (isTicketCreator) {
+      // Si es el creador del ticket (usuario normal), cerrar directamente sin reviews
+      if (isTicketCreator && !hasStaffRole && !hasAdminRole) {
+        if (!closeReason || closeReason.trim().length === 0) {
+          await interaction.followUp({
+            content: '❌ Reason is required when closing your own ticket',
+            ephemeral: true
+          });
+          return;
+        }
+
+        ticket.closeReason = closeReason;
+        ticket.closedBy = interaction.user.id;
+        ticket.closedByType = 'user';
+        TicketManager.saveTickets();
+        
         const channel = await interaction.guild.channels.fetch(ticket.channelId);
         if (channel) {
           const closingEmbed = new EmbedBuilder()
@@ -747,6 +775,11 @@ export class Bot {
             .addFields({
               name: '📝 Reason',
               value: closeReason,
+              inline: false
+            })
+            .addFields({
+              name: '👤 Closed by',
+              value: `${interaction.user} (Ticket Creator)`,
               inline: false
             })
             .setTimestamp();
@@ -762,8 +795,64 @@ export class Bot {
         return;
       }
       
-      // Si es staff, mostrar ratings (la razón se guarda en showRatings)
-      await TicketManager.showRatings(interaction.guild, ticketId, interaction.member, closeReason);
+      // Si es owner/admin, puede cerrar sin razón pero la razón aparece en transcript si la pone
+      if (hasAdminRole) {
+        ticket.closeReason = closeReason;
+        ticket.closedBy = interaction.user.id;
+        ticket.closedByType = 'owner';
+        TicketManager.saveTickets();
+        
+        // Cerrar directamente sin reviews
+        const channel = await interaction.guild.channels.fetch(ticket.channelId);
+        if (channel) {
+          const closingEmbed = new EmbedBuilder()
+            .setColor(0xff9900)
+            .setTitle('✅ Ticket Closing')
+            .setDescription('This ticket will close in a few seconds...')
+            .addFields({
+              name: '👤 Closed by',
+              value: `${interaction.user} (Owner/Admin)`,
+              inline: false
+            });
+          
+          if (closeReason && closeReason.trim().length > 0) {
+            closingEmbed.addFields({
+              name: '📝 Reason',
+              value: closeReason,
+              inline: false
+            });
+          }
+          
+          closingEmbed.setTimestamp();
+          await channel.send({ embeds: [closingEmbed] });
+        }
+        
+        setTimeout(async () => {
+          await TicketManager.closeTicket(interaction.guild, ticketId, interaction.user.id);
+        }, 3000 + Math.random() * 2000);
+        
+        return;
+      }
+      
+      // Si es staff, necesita razón obligatoria y mostrar ratings
+      if (hasStaffRole) {
+        if (!closeReason || closeReason.trim().length === 0) {
+          await interaction.followUp({
+            content: '❌ Reason is required for staff members',
+            ephemeral: true
+          });
+          return;
+        }
+        
+        ticket.closeReason = closeReason;
+        ticket.closedBy = interaction.user.id;
+        ticket.closedByType = 'staff';
+        TicketManager.saveTickets();
+        
+        // Mostrar ratings (la razón ya está guardada)
+        await TicketManager.showRatings(interaction.guild, ticketId, interaction.member, closeReason);
+        return;
+      }
     }
   }
 
@@ -773,7 +862,7 @@ export class Bot {
 
     if (!AUTHORIZED_USER_IDS.includes(interaction.user.id)) {
       await interaction.reply({
-        content: '❌ No tienes permiso para usar este comando.',
+        content: '❌ You do not have permission to use this command.',
         ephemeral: true
       });
       return;
@@ -795,7 +884,7 @@ export class Bot {
     if (customId === 'setup_cancel') {
       SetupWizard.deleteSession(interaction.user.id);
       await interaction.update({
-        content: '❌ Configuración cancelada.',
+        content: '❌ Configuration cancelled.',
         embeds: [],
         components: []
       });
@@ -805,20 +894,23 @@ export class Bot {
     const session = SetupWizard.getSession(interaction.user.id);
     if (!session) {
       await interaction.reply({
-        content: '❌ No hay una sesión de configuración activa. Usa `/setup start` para comenzar.',
+        content: '❌ No active configuration session. Use `/setup start` to begin.',
         ephemeral: true
       });
       return;
     }
 
     if (customId === 'setup_next') {
-      if (session.step < 7) {
+      const maxSteps = 14; // 15 pasos (0-14)
+      if (session.step < maxSteps) {
         session.step++;
         const stepData = SetupWizard.getStepEmbed(session.step, session);
-        await interaction.update({
-          embeds: [stepData.embed],
-          components: [stepData.buttons]
-        });
+        if (stepData) {
+          await interaction.update({
+            embeds: [stepData.embed],
+            components: [stepData.buttons]
+          });
+        }
       }
       return;
     }
@@ -837,12 +929,17 @@ export class Bot {
 
     if (customId === 'setup_skip') {
       session.step++;
-      if (session.step < 8) {
+      const maxSteps = 14; // 15 pasos (0-14)
+      if (session.step <= maxSteps) {
         const stepData = SetupWizard.getStepEmbed(session.step, session);
-        await interaction.update({
-          embeds: [stepData.embed],
-          components: [stepData.buttons]
-        });
+        if (stepData) {
+          await interaction.update({
+            embeds: [stepData.embed],
+            components: [stepData.buttons]
+          });
+        } else {
+          await this.finishSetup(interaction, session);
+        }
       } else {
         await this.finishSetup(interaction, session);
       }
@@ -860,16 +957,24 @@ export class Bot {
       let modal;
       
       if (stepName.includes('role')) {
-        const label = stepName === 'admin_role' ? 'Rol de Administrador' :
-                     stepName === 'staff_role' ? 'Rol de Trial Staff' :
-                     stepName === 'customer_role' ? 'Rol de Cliente' :
-                     'Rol de Trial Admin';
+        const label = stepName === 'admin_role' ? 'Admin Role' :
+                     stepName === 'staff_role' ? 'Trial Staff Role' :
+                     stepName === 'customer_role' ? 'Customer Role' :
+                     'Trial Admin Role';
         modal = SetupWizard.createRoleModal(stepName, label);
       } else {
-        const label = stepName === 'log_channel' ? 'Canal de Logs' :
-                     stepName === 'transcript_channel' ? 'Canal de Transcripts' :
-                     stepName === 'rating_channel' ? 'Canal de Ratings' :
-                     'Canal de Spam/Bans';
+        const label = stepName === 'log_channel' ? 'Log Channel' :
+                     stepName === 'transcript_channel' ? 'Transcript Channel' :
+                     stepName === 'rating_channel' ? 'Rating Channel' :
+                     stepName === 'spam_channel' ? 'Spam/Ban Channel' :
+                     stepName === 'bot_status_channel' ? 'Bot Status Channel' :
+                     stepName === 'automod_channel' ? 'Automod Channel' :
+                     stepName === 'backup_channel' ? 'Backup Channel' :
+                     stepName === 'weekly_reports_channel' ? 'Weekly Reports Channel' :
+                     stepName === 'accept_channel' ? 'Accept Channel' :
+                     stepName === 'staff_rating_support_channel' ? 'Staff Rating Support Channel' :
+                     stepName === 'staff_feedbacks_channel' ? 'Staff Feedbacks Channel' :
+                     'Channel';
         modal = SetupWizard.createChannelModal(stepName, label);
       }
       
@@ -897,7 +1002,7 @@ export class Bot {
 
     if (!/^\d+$/.test(value)) {
       await interaction.reply({
-        content: '❌ El ID debe ser un número válido.',
+        content: '❌ The ID must be a valid number.',
         ephemeral: true
       });
       return;
@@ -908,7 +1013,7 @@ export class Bot {
         const role = await interaction.guild.roles.fetch(value);
         if (!role) {
           await interaction.reply({
-            content: '❌ El rol no existe en este servidor.',
+            content: '❌ The role does not exist in this server.',
             ephemeral: true
           });
           return;
@@ -922,7 +1027,7 @@ export class Bot {
         const channel = await interaction.guild.channels.fetch(value);
         if (!channel) {
           await interaction.reply({
-            content: '❌ El canal no existe en este servidor.',
+            content: '❌ The channel does not exist in this server.',
             ephemeral: true
           });
           return;
@@ -930,12 +1035,20 @@ export class Bot {
         const configKey = stepName === 'log_channel' ? 'logChannelId' :
                          stepName === 'transcript_channel' ? 'transcriptChannelId' :
                          stepName === 'rating_channel' ? 'ratingChannelId' :
-                         'spamChannelId';
+                         stepName === 'spam_channel' ? 'spamChannelId' :
+                         stepName === 'bot_status_channel' ? 'botStatusChannelId' :
+                         stepName === 'automod_channel' ? 'automodChannelId' :
+                         stepName === 'backup_channel' ? 'backupChannelId' :
+                         stepName === 'weekly_reports_channel' ? 'weeklyReportsChannelId' :
+                         stepName === 'accept_channel' ? 'acceptChannelId' :
+                         stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
+                         stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
+                         'channelId';
         session.config[configKey] = value;
       }
     } catch (error) {
       await interaction.reply({
-        content: '❌ Error al verificar el ID. Asegúrate de que el rol/canal existe y el bot tiene acceso.',
+        content: '❌ Error verifying the ID. Make sure the role/channel exists and the bot has access.',
         ephemeral: true
       });
       return;
@@ -943,7 +1056,7 @@ export class Bot {
 
     const stepData = SetupWizard.getStepEmbed(session.step, session);
     await interaction.reply({
-      content: '✅ Configuración guardada!',
+        content: '✅ Configuration saved!',
       embeds: [stepData.embed],
       components: [stepData.buttons],
       ephemeral: true
@@ -957,7 +1070,7 @@ export class Bot {
 
     if (!session.config.adminRoleId || !session.config.staffRoleId) {
       await interaction.update({
-        content: '❌ Debes configurar al menos el Rol de Administrador y el Rol de Trial Staff.',
+        content: '❌ You must configure at least the Admin Role and the Trial Staff Role.',
         embeds: [],
         components: []
       });
@@ -975,53 +1088,95 @@ export class Bot {
       ratingChannelId: session.config.ratingChannelId,
       spamChannelId: session.config.spamChannelId,
       trialAdminRoleId: session.config.trialAdminRoleId,
+      botStatusChannelId: session.config.botStatusChannelId,
+      automodChannelId: session.config.automodChannelId,
+      backupChannelId: session.config.backupChannelId,
+      weeklyReportsChannelId: session.config.weeklyReportsChannelId,
+      acceptChannelId: session.config.acceptChannelId,
+      staffRatingSupportChannelId: session.config.staffRatingSupportChannelId,
+      staffFeedbacksChannelId: session.config.staffFeedbacksChannelId,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
 
     const embed = new EmbedBuilder()
       .setColor(0x00ff00)
-      .setTitle('✅ Bot Configurado Exitosamente')
-      .setDescription(`El bot ha sido configurado para el servidor **${interaction.guild.name}**`)
+      .setTitle('✅ Bot Configured Successfully')
+      .setDescription(`The bot has been configured for server **${interaction.guild.name}**`)
       .addFields(
         {
-          name: '👑 Rol de Admin',
+          name: '👑 Admin Role',
           value: `<@&${session.config.adminRoleId}>`,
           inline: true
         },
         {
-          name: '👥 Rol de Trial Staff',
+          name: '👥 Trial Staff Role',
           value: `<@&${session.config.staffRoleId}>`,
           inline: true
         },
         {
-          name: '🛒 Rol de Cliente',
+          name: '🛒 Customer Role',
           value: session.config.customerRoleId ? `<@&${session.config.customerRoleId}>` : 'Not configured',
           inline: true
         },
         {
-          name: '📝 Canal de Logs',
+          name: '📝 Log Channel',
           value: session.config.logChannelId ? `<#${session.config.logChannelId}>` : 'Not configured',
           inline: true
         },
         {
-          name: '📄 Canal de Transcripts',
+          name: '📄 Transcript Channel',
           value: session.config.transcriptChannelId ? `<#${session.config.transcriptChannelId}>` : 'Not configured',
           inline: true
         },
         {
-          name: '⭐ Canal de Ratings',
+          name: '⭐ Rating Channel',
           value: session.config.ratingChannelId ? `<#${session.config.ratingChannelId}>` : 'Not configured',
           inline: true
         },
         {
-          name: '🚫 Canal de Spam/Bans',
+          name: '🚫 Spam/Ban Channel',
           value: session.config.spamChannelId ? `<#${session.config.spamChannelId}>` : 'Not configured',
           inline: true
         },
         {
-          name: '🔧 Rol de Trial Admin',
+          name: '🔧 Trial Admin Role',
           value: session.config.trialAdminRoleId ? `<@&${session.config.trialAdminRoleId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '🤖 Bot Status Channel',
+          value: session.config.botStatusChannelId ? `<#${session.config.botStatusChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '🛡️ Automod Channel',
+          value: session.config.automodChannelId ? `<#${session.config.automodChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '💾 Backup Channel',
+          value: session.config.backupChannelId ? `<#${session.config.backupChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '📊 Weekly Reports Channel',
+          value: session.config.weeklyReportsChannelId ? `<#${session.config.weeklyReportsChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '✅ Accept Channel',
+          value: session.config.acceptChannelId ? `<#${session.config.acceptChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '⭐ Staff Rating Support',
+          value: session.config.staffRatingSupportChannelId ? `<#${session.config.staffRatingSupportChannelId}>` : 'Not configured',
+          inline: true
+        },
+        {
+          name: '🌟 Staff Feedbacks',
+          value: session.config.staffFeedbacksChannelId ? `<#${session.config.staffFeedbacksChannelId}>` : 'Not configured',
           inline: true
         }
       )
@@ -1057,6 +1212,41 @@ export class Bot {
         const content = message.content.toLowerCase();
         const hasImages = message.attachments.size > 0;
         
+        // Sistema de auto-respuesta para tickets
+        const autoResponses = [
+          {
+            triggers: ['warranty', 'warrant', 'guarantee', 'guaranty'],
+            response: '📋 **Warranty Check Required**\n\n1. First, check the warranty on the website\n2. Send your invoice number\n3. Send proof (screenshot/image)\n\nOnce you provide these, the staff will process your replacement.'
+          },
+          {
+            triggers: ['password', 'incorrect', 'wrong password', 'can\'t access', 'cannot access', 'can\'t login', 'cannot login'],
+            response: '🔐 **Account Access Issue**\n\nPlease provide:\n1. Invoice number\n2. Screenshot/proof of the issue\n3. Service name (if known)\n\nThe staff will help you resolve this issue.'
+          },
+          {
+            triggers: ['invoice', 'invoice number', 'invoice id'],
+            response: '📄 **Invoice Information**\n\nPlease send:\n1. Your invoice number (alphanumeric code)\n2. Proof/screenshot of the issue\n\nThis will help the staff process your request faster.'
+          }
+        ];
+
+        // Verificar si hay una respuesta automática para este mensaje
+        for (const autoResponse of autoResponses) {
+          const hasTrigger = autoResponse.triggers.some(trigger => content.includes(trigger));
+          if (hasTrigger) {
+            const lastMessages = await message.channel.messages.fetch({ limit: 10 });
+            const alreadyResponded = lastMessages.some(msg => 
+              msg.author.bot && 
+              msg.content.includes(autoResponse.response.substring(0, 30))
+            );
+            
+            if (!alreadyResponded) {
+              await message.channel.send({
+                content: autoResponse.response
+              });
+              break;
+            }
+          }
+        }
+
         // Detectar frases como "account doesn't work" o "acc don't work"
         const accountIssues = [
           'account doesn\'t work',
@@ -1069,7 +1259,10 @@ export class Bot {
           'acc broken',
           'not working',
           'doesn\'t work',
-          'don\'t work'
+          'don\'t work',
+          'the account doesn\'t work',
+          'the account don\'t work',
+          'now the account doesn\'t work'
         ];
         
         const hasAccountIssue = accountIssues.some(phrase => content.includes(phrase));
@@ -1080,8 +1273,8 @@ export class Bot {
           const lastMessages = await message.channel.messages.fetch({ limit: 5 });
           const alreadyAsked = lastMessages.some(msg => 
             msg.author.bot && 
-            msg.content.includes('What account') || 
-            msg.content.includes('Qué cuenta')
+            (msg.content.includes('What account') || 
+             msg.content.includes('Please specify'))
           );
           
           if (!alreadyAsked) {
