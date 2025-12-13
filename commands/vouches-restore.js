@@ -54,7 +54,7 @@ export default {
 
   async execute(interaction, api) {
     try {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: false });
 
       const backupFileName = interaction.options.getString('backup_file');
       const backupPath = join(BACKUPS_DIR, backupFileName);
@@ -102,15 +102,16 @@ export default {
       const embed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setTitle('✅ Vouches Restored')
+        .setDescription('All vouches from the backup have been successfully restored.')
         .addFields(
           {
-            name: '📦 Total Vouches Restored',
-            value: vouchesCount.toString(),
+            name: '👤 Restored by',
+            value: `${interaction.user} (${interaction.user.tag})\n**ID:** ${interaction.user.id}`,
             inline: true
           },
           {
-            name: '📁 Backup File',
-            value: backupFileName,
+            name: '📦 Total Vouches Restored',
+            value: vouchesCount.toString(),
             inline: true
           },
           {
@@ -119,24 +120,33 @@ export default {
             inline: true
           },
           {
+            name: '📁 Backup File',
+            value: `\`${backupFileName}\``,
+            inline: false
+          },
+          {
             name: '📋 Restored Vouches (First 20)',
             value: vouchesList.length > 1024 ? vouchesList.substring(0, 1020) + '...' : vouchesList,
             inline: false
           },
           {
             name: '💾 Pre-Restore Backup',
-            value: `Saved as: pre_restore_${timestamp}.json`,
+            value: `Saved as: \`pre_restore_${timestamp}.json\``,
             inline: false
           }
         )
-        .setFooter({ text: vouchesCount > 20 ? `Showing first 20 of ${vouchesCount} vouches` : 'Vouches restored successfully' })
+        .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+        .setFooter({ 
+          text: vouchesCount > 20 ? `Showing first 20 of ${vouchesCount} vouches • Restored by ${interaction.user.username}` : `Vouches restored successfully • Restored by ${interaction.user.username}`,
+          iconURL: interaction.client.user.displayAvatarURL({ dynamic: true })
+        })
         .setTimestamp();
 
       await interaction.editReply({
         embeds: [embed]
       });
 
-      console.log(`[VOUCHES-RESTORE] ✅ Vouches restored from ${backupFileName} (${vouchesCount} vouches)`);
+      console.log(`[VOUCHES-RESTORE] ✅ Vouches restored from ${backupFileName} (${vouchesCount} vouches) by ${interaction.user.tag} (${interaction.user.id})`);
 
     } catch (error) {
       console.error('[VOUCHES-RESTORE] Error:', error);
