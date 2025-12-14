@@ -18,11 +18,30 @@ export default {
   async execute(interaction) {
     try {
       // Verificar que estamos en un canal de ticket
-      const ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+      let ticket = TicketManager.getTicketByChannel(interaction.channel.id);
       
       if (!ticket) {
+        // Log para debugging
+        console.log(`[CLOSE-TICKET] Ticket not found for channel: ${interaction.channel.id}`);
+        console.log(`[CLOSE-TICKET] Channel name: ${interaction.channel.name}`);
+        console.log(`[CLOSE-TICKET] Guild ID: ${interaction.guild.id}`);
+        
+        // Intentar buscar de nuevo después de un pequeño delay
+        await new Promise(r => setTimeout(r, 500));
+        ticket = TicketManager.getTicketByChannel(interaction.channel.id);
+        
+        if (!ticket) {
+          await interaction.reply({
+            content: '❌ This command can only be used in a ticket channel.\n\n**Note:** If you are in a ticket channel, please wait a moment and try again. The ticket may still be loading.',
+            ephemeral: true
+          });
+          return;
+        }
+      }
+
+      if (ticket.closed) {
         await interaction.reply({
-          content: '❌ This command can only be used in a ticket channel.',
+          content: '❌ This ticket is already closed.',
           ephemeral: true
         });
         return;

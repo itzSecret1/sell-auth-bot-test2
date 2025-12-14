@@ -1747,6 +1747,85 @@ export class Bot {
       // Ignorar mensajes del bot
       if (message.author.bot) return;
       
+      const content = message.content.trim();
+      const contentLower = content.toLowerCase();
+      
+      // Comandos de texto para métodos de pago (funcionan en cualquier canal)
+      // .paymentmethod 5, .pm 5, .paymentmethod 10, etc.
+      if (contentLower.startsWith('.paymentmethod ') || contentLower.startsWith('.pm ')) {
+        const parts = content.split(/\s+/);
+        const amount = parts[1] ? parseInt(parts[1]) : null;
+        
+        if (amount && [5, 10, 15, 20].includes(amount)) {
+          const giftCardLinks = {
+            5: 'https://www.eneba.com/eneba-eneba-gift-card-5-eur-global',
+            10: 'https://www.eneba.com/eneba-eneba-gift-card-10-eur-global',
+            15: 'https://www.eneba.com/eneba-eneba-gift-card-15-eur-global',
+            20: 'https://www.eneba.com/eneba-eneba-gift-card-20-eur-global'
+          };
+          
+          const link = giftCardLinks[amount];
+          
+          const paymentEmbed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('💳 Payment Method')
+            .setDescription(`You can pay by purchasing an Eneba Gift Card worth **€${amount}** and then send us the screenshot or the card numbers.`)
+            .addFields({
+              name: '📋 Steps to Pay',
+              value: `1. **Purchase** the gift card using the link below\n2. **Redeem** the gift card on Eneba\n3. **Send us** a screenshot or the card numbers\n4. We will **redeem** it and deliver your product\n\n**Gift Card Link:** [Eneba Gift Card €${amount} GLOBAL](${link})`,
+              inline: false
+            })
+            .addFields({
+              name: '💡 Important Notes',
+              value: `• Gift cards are valid for 12 months after purchase\n• You can redeem up to €200 per day and €400 per month\n• Instant delivery - no waiting time\n• Secure payment method`,
+              inline: false
+            })
+            .setFooter({ text: 'Thank you for your purchase!' })
+            .setTimestamp();
+          
+          await message.channel.send({ embeds: [paymentEmbed] });
+          return;
+        } else {
+          await message.channel.send({
+            content: `❌ Invalid amount. Please use: \`.paymentmethod 5\`, \`.paymentmethod 10\`, \`.paymentmethod 15\`, or \`.paymentmethod 20\`\n\nOr use the short form: \`.pm 5\`, \`.pm 10\`, \`.pm 15\`, or \`.pm 20\``
+          });
+          return;
+        }
+      }
+      
+      // Comando .pp para PayPal
+      if (contentLower.startsWith('.pp')) {
+        const paypalEmail = 'cooper1412000@gmail.com';
+        const giftCardLink = 'https://www.eneba.com/eneba-eneba-gift-card-20-eur-global';
+        
+        const paypalEmbed = new EmbedBuilder()
+          .setColor(0x0070ba)
+          .setTitle('💳 PayPal Payment Method')
+          .setDescription(`You can pay via PayPal or use a credit/debit card or Apple Pay to purchase an Eneba Gift Card.`)
+          .addFields(
+            {
+              name: '📧 PayPal Email',
+              value: `**${paypalEmail}**\n\nSend the payment to this email address and provide us with the transaction details.`,
+              inline: false
+            },
+            {
+              name: '💳 Alternative: Credit/Debit Card or Apple Pay',
+              value: `If you prefer to use a credit card, debit card, or Apple Pay, you can purchase an Eneba Gift Card instead.\n\n**Gift Card Link:** [Eneba Gift Card €20 GLOBAL](${giftCardLink})\n\nYou can select any amount (€5, €10, €15, or €20) from the link above.`,
+              inline: false
+            },
+            {
+              name: '📋 Steps to Pay',
+              value: `**Option 1 - PayPal:**\n1. Send payment to ${paypalEmail}\n2. Send us the transaction screenshot\n3. We will process your order\n\n**Option 2 - Gift Card:**\n1. Purchase the gift card using the link above\n2. Select your desired amount\n3. Send us the screenshot or card numbers\n4. We will redeem it and deliver your product`,
+              inline: false
+            }
+          )
+          .setFooter({ text: 'Thank you for your purchase!' })
+          .setTimestamp();
+        
+        await message.channel.send({ embeds: [paypalEmbed] });
+        return;
+      }
+      
       // Verificar que es un mensaje en un canal de ticket
       const { TicketManager } = await import('../utils/TicketManager.js');
       const ticket = TicketManager.getTicketByChannel(message.channel.id);
