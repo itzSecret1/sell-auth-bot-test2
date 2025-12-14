@@ -2,6 +2,17 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Suppress punycode deprecation warning (comes from dependencies, not our code)
+process.removeAllListeners('warning');
+process.on('warning', (warning) => {
+  if (warning.name === 'DeprecationWarning' && warning.message.includes('punycode')) {
+    // Silently ignore punycode deprecation warnings
+    return;
+  }
+  // Show other warnings
+  console.warn(warning.name, warning.message);
+});
+
 import { Client, GatewayIntentBits } from 'discord.js';
 import { Bot } from './classes/Bot.js';
 import { Api } from './classes/Api.js';

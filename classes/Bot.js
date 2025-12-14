@@ -233,16 +233,57 @@ export class Bot {
           try {
             console.log(`[BOT] 📤 Sending batch registration request for ${totalCommands} commands...`);
             
-            // Crear una promesa con timeout manual para mejor control
-            const registrationPromise = rest.put(route, { 
-              body: validCommands
-            });
+            // Dividir en lotes más pequeños si hay muchos comandos (Discord tiene límites)
+            const BATCH_SIZE = 25; // Discord permite hasta 100, pero usamos 25 para ser seguros
+            let allResults = [];
             
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Registration timeout after 60s')), 60000)
-            );
-            
-            const result = await Promise.race([registrationPromise, timeoutPromise]);
+            if (validCommands.length > BATCH_SIZE) {
+              // Registrar en lotes
+              console.log(`[BOT] 📦 Large command set detected, splitting into batches of ${BATCH_SIZE}...`);
+              
+              for (let i = 0; i < validCommands.length; i += BATCH_SIZE) {
+                const batch = validCommands.slice(i, i + BATCH_SIZE);
+                const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+                const totalBatches = Math.ceil(validCommands.length / BATCH_SIZE);
+                
+                console.log(`[BOT] 📦 Registering batch ${batchNum}/${totalBatches} (${batch.length} commands)...`);
+                
+                try {
+                  const batchPromise = rest.put(route, { body: batch });
+                  const batchTimeout = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error(`Batch ${batchNum} timeout after 30s`)), 30000)
+                  );
+                  
+                  const batchResult = await Promise.race([batchPromise, batchTimeout]);
+                  
+                  if (batchResult && Array.isArray(batchResult)) {
+                    allResults = allResults.concat(batchResult);
+                    console.log(`[BOT] ✅ Batch ${batchNum}/${totalBatches} registered (${batchResult.length} commands)`);
+                  }
+                  
+                  // Pequeña pausa entre lotes para evitar rate limits
+                  if (i + BATCH_SIZE < validCommands.length) {
+                    await new Promise(r => setTimeout(r, 1000));
+                  }
+                } catch (batchErr) {
+                  console.error(`[BOT] ❌ Batch ${batchNum} failed:`, batchErr.message);
+                  // Continuar con el siguiente lote
+                }
+              }
+              
+              var result = allResults;
+            } else {
+              // Registrar todos a la vez si son pocos
+              const registrationPromise = rest.put(route, { 
+                body: validCommands
+              });
+              
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Registration timeout after 30s')), 30000)
+              );
+              
+              var result = await Promise.race([registrationPromise, timeoutPromise]);
+            }
             
             if (result && Array.isArray(result)) {
               const registeredCount = result.length;

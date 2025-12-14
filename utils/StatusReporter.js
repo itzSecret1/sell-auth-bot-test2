@@ -1,6 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
-
-const STAFF_CHANNEL_ID = '1441496193711472814';
+import { GuildConfig } from './GuildConfig.js';
 
 /**
  * StatusReporter - Sends professional status messages to staff channel
@@ -14,67 +13,106 @@ export class StatusReporter {
   }
 
   /**
+   * Get status channel ID from guild config or fallback
+   */
+  getStatusChannelId(guildId = null) {
+    // Try to get from guild config first
+    if (guildId) {
+      const config = GuildConfig.getConfig(guildId);
+      if (config?.botStatusChannelId) {
+        return config.botStatusChannelId;
+      }
+    }
+    
+    // Fallback to environment variable or default
+    return process.env.BOT_STATUS_CHANNEL_ID || process.env.BOT_LOG_CHANNEL || null;
+  }
+
+  /**
    * Send offline recovery notification to staff channel
    * @param {Date} resetTime - When the bot will reconnect
    * @param {Number} attemptNumber - Current recovery attempt number
    */
-  async notifyOfflineWithRecovery(resetTime, attemptNumber = 1) {
+  async notifyOfflineWithRecovery(resetTime, attemptNumber = 1, guildId = null) {
     try {
-      const channel = this.client.channels.cache.get(STAFF_CHANNEL_ID);
-      if (!channel) {
-        console.error('[STATUS] Channel not found:', STAFF_CHANNEL_ID);
+      const channelId = this.getStatusChannelId(guildId);
+      if (!channelId) {
+        // Silently skip if no channel configured
         return;
       }
 
-      const now = new Date();
-      const waitTime = resetTime - now;
-      const hours = Math.floor(waitTime / (60 * 60 * 1000));
-      const minutes = Math.floor((waitTime % (60 * 60 * 1000)) / (60 * 1000));
-
-      const embed = new EmbedBuilder()
-        .setColor(0xff4444) // Red for offline
-        .setTitle('🔴 Bot Status: OFFLINE - Recovery in Progress')
-        .setDescription('The SellAuth Discord Bot is temporarily offline due to Discord session limits.')
-        .addFields(
-          {
-            name: '⏱️ Expected Reconnection',
-            value: `${resetTime.toUTCString()}\n(In ${hours}h ${minutes}m)`,
-            inline: false
-          },
-          {
-            name: '🔧 Reason',
-            value: 'Discord rate limit detected. Automatic recovery scheduled.',
-            inline: false
-          },
-          {
-            name: '📊 Recovery Status',
-            value: `Attempt: ${attemptNumber}/3\nAuto-recovery: ✅ ENABLED`,
-            inline: false
-          },
-          {
-            name: '✅ What to expect',
-            value:
-              'The bot will reconnect automatically at the scheduled time. All commands will resume normal operation immediately after reconnection. No manual intervention needed.',
-            inline: false
+      const channel = this.client.channels.cache.get(channelId);
+      if (!channel) {
+        // Try to fetch the channel
+        try {
+          const fetchedChannel = await this.client.channels.fetch(channelId);
+          if (fetchedChannel) {
+            await this.sendOfflineEmbed(fetchedChannel, resetTime, attemptNumber);
+            return;
           }
-        )
-        .setFooter({
-          text: 'SellAuth Bot Status System',
-          iconURL: 'https://cdn.discordapp.com/app-icons/1009849347124862193/2a07cee6e1c97f4ac1cbc8c8ef0b2d1c.png'
-        })
-        .setTimestamp();
+        } catch (fetchError) {
+          // Channel doesn't exist or bot doesn't have access
+          return;
+        }
+        return;
+      }
 
-      await channel.send({ embeds: [embed] });
-      console.log('[STATUS] ✅ Offline notification sent to staff channel');
+      await this.sendOfflineEmbed(channel, resetTime, attemptNumber);
     } catch (error) {
-      console.error('[STATUS] Error sending offline notification:', error.message);
+      // Silently handle errors - status updates are not critical
     }
+  }
+
+  /**
+   * Send offline embed to channel
+   */
+  async sendOfflineEmbed(channel, resetTime, attemptNumber) {
+
+    const now = new Date();
+    const waitTime = resetTime - now;
+    const hours = Math.floor(waitTime / (60 * 60 * 1000));
+    const minutes = Math.floor((waitTime % (60 * 60 * 1000)) / (60 * 1000));
+
+    const embed = new EmbedBuilder()
+      .setColor(0xff4444) // Red for offline
+      .setTitle('🔴 Bot Status: OFFLINE - Recovery in Progress')
+      .setDescription('The SellAuth Discord Bot is temporarily offline due to Discord session limits.')
+      .addFields(
+        {
+          name: '⏱️ Expected Reconnection',
+          value: `${resetTime.toUTCString()}\n(In ${hours}h ${minutes}m)`,
+          inline: false
+        },
+        {
+          name: '🔧 Reason',
+          value: 'Discord rate limit detected. Automatic recovery scheduled.',
+          inline: false
+        },
+        {
+          name: '📊 Recovery Status',
+          value: `Attempt: ${attemptNumber}/3\nAuto-recovery: ✅ ENABLED`,
+          inline: false
+        },
+        {
+          name: '✅ What to expect',
+          value:
+            'The bot will reconnect automatically at the scheduled time. All commands will resume normal operation immediately after reconnection. No manual intervention needed.',
+          inline: false
+        }
+      )
+      .setFooter({
+        text: 'SellAuth Bot Status System',
+        iconURL: 'https://cdn.discordapp.com/app-icons/1009849347124862193/2a07cee6e1c97f4ac1cbc8c8ef0b2d1c.png'
+      })
+      .setTimestamp();
+
+    await channel.send({ embeds: [embed] });
   }
 
   /**
    * Send daily online status confirmation
    */
-  async sendDailyStatusUpdate() {
+  async sendDailyStatusUpdate(guildId = null) {
     try {
       // Only send once per day
       const now = new Date();
@@ -84,10 +122,22 @@ export class StatusReporter {
         return;
       }
 
-      const channel = this.client.channels.cache.get(STAFF_CHANNEL_ID);
-      if (!channel) {
-        console.error('[STATUS] Channel not found:', STAFF_CHANNEL_ID);
+      const channelId = this.getStatusChannelId(guildId);
+      if (!channelId) {
+        // Silently skip if no channel configured
         return;
+      }
+
+      let channel = this.client.channels.cache.get(channelId);
+      if (!channel) {
+        // Try to fetch the channel
+        try {
+          channel = await this.client.channels.fetch(channelId);
+          if (!channel) return;
+        } catch (fetchError) {
+          // Channel doesn't exist or bot doesn't have access - silently skip
+          return;
+        }
       }
 
       // Get bot uptime info

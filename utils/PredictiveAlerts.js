@@ -1,7 +1,6 @@
 import { EmbedBuilder } from 'discord.js';
 import { SmartAnalytics } from './SmartAnalytics.js';
-
-const ALERT_CHANNEL = process.env.BOT_LOG_CHANNEL || '1441496193711472814';
+import { GuildConfig } from './GuildConfig.js';
 
 /**
  * PredictiveAlerts - AI-powered alert system
@@ -11,6 +10,22 @@ export class PredictiveAlerts {
     this.client = client;
     this.analytics = new SmartAnalytics();
     this.alertsSent = new Set();
+  }
+
+  /**
+   * Get alert channel ID from guild config or fallback
+   */
+  getAlertChannelId(guildId = null) {
+    // Try to get from guild config first
+    if (guildId) {
+      const config = GuildConfig.getConfig(guildId);
+      if (config?.logChannelId) {
+        return config.logChannelId;
+      }
+    }
+    
+    // Fallback to environment variable
+    return process.env.BOT_LOG_CHANNEL || null;
   }
 
   /**
@@ -94,10 +109,25 @@ export class PredictiveAlerts {
   /**
    * Send alert to channel
    */
-  async sendAlert(alert) {
+  async sendAlert(alert, guildId = null) {
     try {
-      const channel = this.client.channels.cache.get(ALERT_CHANNEL);
-      if (!channel) return;
+      const channelId = this.getAlertChannelId(guildId);
+      if (!channelId) {
+        // Silently skip if no channel configured
+        return;
+      }
+
+      let channel = this.client.channels.cache.get(channelId);
+      if (!channel) {
+        // Try to fetch the channel
+        try {
+          channel = await this.client.channels.fetch(channelId);
+          if (!channel) return;
+        } catch (fetchError) {
+          // Channel doesn't exist or bot doesn't have access - silently skip
+          return;
+        }
+      }
 
       const colorMap = {
         high: 0xff4444,
