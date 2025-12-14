@@ -232,6 +232,15 @@ export class Bot {
           
           const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
           
+          // Log lista de comandos que se van a registrar
+          const commandNames = this.slashCommands.map(c => c.name).sort();
+          console.log(`[BOT] 📋 Commands to register: ${commandNames.join(', ')}`);
+          if (commandNames.includes('vouches-restore')) {
+            console.log(`[BOT] ✅ vouches-restore found in command list`);
+          } else {
+            console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
+          }
+          
           for (let i = 0; i < this.slashCommands.length; i++) {
             const cmd = this.slashCommands[i];
             
@@ -240,6 +249,11 @@ export class Bot {
               console.warn(`[BOT] ⚠️  Skipping invalid command at index ${i}`);
               failed++;
               continue;
+            }
+            
+            // Log especial para vouches-restore
+            if (cmd.name === 'vouches-restore') {
+              console.log(`[BOT] 🔍 Registering vouches-restore (index ${i})...`);
             }
             
             let registered = false;
