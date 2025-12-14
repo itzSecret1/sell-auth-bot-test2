@@ -175,7 +175,16 @@ export class Bot {
       }
 
       console.log(`[BOT] ✅ Loaded ${this.slashCommands.length} commands into memory`);
-      setTimeout(() => this.registerIndividualCommands(), 2000);
+      console.log(`[BOT] ⏳ Scheduling command registration in 2 seconds...`);
+      
+      // Registrar comandos de forma asíncrona sin bloquear el inicio del bot
+      setTimeout(() => {
+        console.log(`[BOT] 🚀 Starting command registration process...`);
+        this.registerIndividualCommands().catch(err => {
+          console.error(`[BOT] ❌ Fatal error in command registration: ${err.message}`);
+          console.error(`[BOT]    Bot will continue running but commands may not be registered`);
+        });
+      }, 2000);
       
     } catch (error) {
       console.error('[BOT] Error loading commands:', error.message);
@@ -268,44 +277,113 @@ export class Bot {
             console.log(`[BOT] 📤 Sending batch PUT request with ${totalCommands} commands...`);
             console.log(`[BOT]    Route: ${route}`);
             console.log(`[BOT]    Body size: ${JSON.stringify(validCommands).length} bytes`);
+            console.log(`[BOT]    Timestamp: ${new Date().toISOString()}`);
             
-            // Usar PUT con todos los comandos - método batch
-            const putPromise = rest.put(route, { 
-              body: validCommands,
-              timeout: 60000 // 60 segundos para batch grande
+            // Crear AbortController para poder cancelar la solicitud
+            const abortController = new AbortController();
+            const abortSignal = abortController.signal;
+            
+            // Timeout más corto con logging detallado
+            let timeoutId;
+            const timeoutPromise = new Promise((_, reject) => {
+              timeoutId = setTimeout(() => {
+                console.error(`[BOT] ⏱️  TIMEOUT: Request took longer than 30 seconds`);
+                console.error(`[BOT]    Cancelling request...`);
+                abortController.abort();
+                reject(new Error('Batch registration timeout after 30s'));
+              }, 30000); // 30 segundos
             });
             
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Batch registration timeout after 60s')), 60000)
-            );
+            // Logging durante la solicitud
+            console.log(`[BOT]    [${new Date().toISOString()}] Creating PUT request...`);
+            const requestStartTime = Date.now();
             
-            console.log(`[BOT]    Waiting for Discord API response...`);
-            const result = await Promise.race([putPromise, timeoutPromise]);
+            const putPromise = rest.put(route, { 
+              body: validCommands,
+              signal: abortSignal,
+              timeout: 30000 // 30 segundos
+            }).then(result => {
+              const requestTime = ((Date.now() - requestStartTime) / 1000).toFixed(2);
+              console.log(`[BOT]    [${new Date().toISOString()}] ✅ Request completed in ${requestTime}s`);
+              clearTimeout(timeoutId);
+              return result;
+            }).catch(err => {
+              const requestTime = ((Date.now() - requestStartTime) / 1000).toFixed(2);
+              console.error(`[BOT]    [${new Date().toISOString()}] ❌ Request failed after ${requestTime}s`);
+              console.error(`[BOT]    Error details: ${err.message || err.code || 'Unknown'}`);
+              clearTimeout(timeoutId);
+              throw err;
+            });
             
-            if (result && Array.isArray(result)) {
-              const registeredCount = result.length;
-              const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`[BOT]    [${new Date().toISOString()}] Request sent, waiting for response...`);
+            console.log(`[BOT]    [${new Date().toISOString()}] Timeout set for 30 seconds`);
+            
+            // Logging cada 5 segundos mientras espera
+            const progressInterval = setInterval(() => {
+              const elapsed = ((Date.now() - requestStartTime) / 1000).toFixed(1);
+              console.log(`[BOT]    [${new Date().toISOString()}] ⏳ Still waiting... (${elapsed}s elapsed)`);
+            }, 5000);
+            
+            try {
+              const result = await Promise.race([putPromise, timeoutPromise]);
+              clearInterval(progressInterval);
+              clearTimeout(timeoutId);
               
-              console.log(`[BOT] ✅ ${guild.name}: ${registeredCount}/${totalCommands} commands registered successfully (took ${totalTime}s)`);
-              
-              // Verificar que vouches-restore se registró
-              const registeredNames = result.map(c => c.name);
-              if (registeredNames.includes('vouches-restore')) {
-                const vouchesRestore = result.find(c => c.name === 'vouches-restore');
-                console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${vouchesRestore.id}`);
+              const totalRequestTime = ((Date.now() - requestStartTime) / 1000).toFixed(2);
+              console.log(`[BOT]    [${new Date().toISOString()}] ✅ Received response in ${totalRequestTime}s`);
+            
+              if (result && Array.isArray(result)) {
+                const registeredCount = result.length;
+                const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                
+                console.log(`[BOT] ✅ ${guild.name}: ${registeredCount}/${totalCommands} commands registered successfully (took ${totalTime}s)`);
+                console.log(`[BOT]    Response received at: ${new Date().toISOString()}`);
+                
+                // Verificar que vouches-restore se registró
+                const registeredNames = result.map(c => c.name);
+                console.log(`[BOT]    Registered command names: ${registeredNames.slice(0, 10).join(', ')}${registeredNames.length > 10 ? '...' : ''}`);
+                
+                if (registeredNames.includes('vouches-restore')) {
+                  const vouchesRestore = result.find(c => c.name === 'vouches-restore');
+                  console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${vouchesRestore.id}`);
+                } else {
+                  console.warn(`[BOT] ⚠️  vouches-restore was NOT registered!`);
+                  console.warn(`[BOT]    Registered commands: ${registeredNames.slice(0, 10).join(', ')}...`);
+                }
               } else {
-                console.warn(`[BOT] ⚠️  vouches-restore was NOT registered!`);
-                console.warn(`[BOT]    Registered commands: ${registeredNames.slice(0, 10).join(', ')}...`);
+                console.error(`[BOT] ❌ Invalid response type: ${typeof result}`);
+                console.error(`[BOT]    Response: ${JSON.stringify(result).substring(0, 200)}`);
+                throw new Error('Invalid response from Discord API - expected array');
               }
-            } else {
-              throw new Error('Invalid response from Discord API - expected array');
+            } catch (raceErr) {
+              clearInterval(progressInterval);
+              clearTimeout(timeoutId);
+              throw raceErr;
             }
           } catch (err) {
-            console.error(`[BOT] ❌ Error in batch registration: ${err.message || err.code || err}`);
+            const errorTime = new Date().toISOString();
+            console.error(`[BOT] ❌ Error in batch registration at ${errorTime}`);
             console.error(`[BOT]    Error type: ${err.constructor?.name || 'Unknown'}`);
+            console.error(`[BOT]    Error code: ${err.code || 'N/A'}`);
             console.error(`[BOT]    Error status: ${err.status || 'N/A'}`);
+            console.error(`[BOT]    Error message: ${err.message || 'Unknown error'}`);
+            console.error(`[BOT]    Error name: ${err.name || 'N/A'}`);
+            
+            if (err.request) {
+              console.error(`[BOT]    Request details: ${JSON.stringify(err.request).substring(0, 200)}`);
+            }
+            
+            if (err.response) {
+              console.error(`[BOT]    Response status: ${err.response.status}`);
+              console.error(`[BOT]    Response data: ${JSON.stringify(err.response.data).substring(0, 300)}`);
+            }
+            
             if (err.stack) {
-              console.error(`[BOT]    Error stack: ${err.stack.split('\n').slice(0, 5).join('\n')}`);
+              console.error(`[BOT]    Error stack:`);
+              const stackLines = err.stack.split('\n').slice(0, 10);
+              stackLines.forEach((line, idx) => {
+                console.error(`[BOT]      [${idx + 1}] ${line}`);
+              });
             }
             
             // Verificar si es error de autenticación
