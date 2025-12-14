@@ -560,27 +560,6 @@ export class Bot {
               }
             }
           }
-              
-              if (created && created.id) {
-                success++;
-                const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
-                console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
-                console.log(`[BOT]    Created at: ${new Date().toISOString()}`);
-                
-                // Verificar vouches-restore específicamente
-                if (cmd.name === 'vouches-restore') {
-                  console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${created.id}`);
-                }
-              } else {
-                throw new Error('Command created but no ID returned');
-              }
-              
-              // Delay entre comandos para evitar rate limits (500ms)
-              if (i < validCommands.length - 1) {
-                await new Promise(r => setTimeout(r, 500));
-              }
-              
-            } catch (cmdErr) {
               failed++;
               failedCommands.push(cmd.name);
               const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
