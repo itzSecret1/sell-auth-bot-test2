@@ -17,7 +17,8 @@ export class SetupWizard {
         transcriptChannelId: null,
         ratingChannelId: null,
         spamChannelId: null,
-        trialAdminRoleId: null
+        trialAdminRoleId: null,
+        vouchesChannelId: null
       }
     };
     this.setupSessions.set(userId, session);
@@ -150,6 +151,14 @@ export class SetupWizard {
         fieldName: 'Staff Feedbacks Channel',
         fieldValue: session.config.staffFeedbacksChannelId ? `<#${session.config.staffFeedbacksChannelId}>` : 'Not configured (Optional)',
         buttonId: 'setup_staff_feedbacks_channel',
+        optional: true
+      },
+      {
+        title: '💬 Step 16: Vouches/Feedbacks Channel',
+        description: '**What is it?**\nThis channel is where customers can leave vouches and feedback about your service using the `/vouch` command.\n\n**What does it contain?**\n• Customer vouches and reviews\n• Service ratings\n• Customer testimonials\n• Proof screenshots\n\n**Is it mandatory?** No, but highly recommended to build trust and showcase customer satisfaction.',
+        fieldName: 'Vouches/Feedbacks Channel',
+        fieldValue: session.config.vouchesChannelId ? `<#${session.config.vouchesChannelId}>` : 'Not configured (Optional)',
+        buttonId: 'setup_vouches_channel',
         optional: true
       }
     ];

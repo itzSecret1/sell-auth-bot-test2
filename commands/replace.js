@@ -479,6 +479,34 @@ export default {
         }
       }
 
+      // Sugerir hacer vouch después de un replace exitoso
+      const { GuildConfig } = await import('../utils/GuildConfig.js');
+      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+      const vouchesChannelId = guildConfig?.vouchesChannelId;
+      
+      if (vouchesChannelId) {
+        try {
+          const vouchesChannel = interaction.guild.channels.cache.get(vouchesChannelId);
+          if (vouchesChannel) {
+            const vouchSuggestion = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle('💬 Help Us Grow!')
+              .setDescription(`Thank you for using our service! If you're satisfied with your purchase, please consider leaving a vouch to help us grow.`)
+              .addFields({
+                name: '⭐ How to Leave a Vouch',
+                value: `Use the \`/vouch\` command in ${vouchesChannel} to share your experience!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot\n\nYour feedback helps us improve and helps other customers make informed decisions.`,
+                inline: false
+              })
+              .setFooter({ text: 'Thank you for your support!' })
+              .setTimestamp();
+            
+            await interaction.followUp({ embeds: [vouchSuggestion], ephemeral: true });
+          }
+        } catch (vouchError) {
+          console.error('[REPLACE] Error sending vouch suggestion:', vouchError);
+        }
+      }
+
       // Log success
       console.log(
         `[REPLACE] ✅ SUCCESS: ${quantity} items removed from ${productData.productName} - ${variantData.name}`

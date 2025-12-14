@@ -885,9 +885,9 @@ export class Bot {
             .setCustomId('invoice_id')
             .setLabel('Invoice ID (Required)')
             .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Enter your invoice ID...')
+            .setPlaceholder('Example: 6555d345ec623-0000008535737')
             .setRequired(true)
-            .setMaxLength(100);
+            .setMaxLength(30);
 
           const proofInput = new TextInputBuilder()
             .setCustomId('proof_note')
@@ -1179,6 +1179,14 @@ export class Bot {
     }
   }
 
+  // Validar formato de invoice ID
+  validateInvoiceIdFormat(invoiceId) {
+    // Formato esperado: 12 caracteres alfanuméricos - 15 dígitos
+    // Ejemplos válidos: 6555d345ec623-0000008535737, f6fbff4893023-0000008534297
+    const invoicePattern = /^[a-z0-9]{12}-[0-9]{15}$/i;
+    return invoicePattern.test(invoiceId.trim());
+  }
+
   async handleTicketModal(interaction) {
     // Modal para crear ticket de replaces con invoice
     if (interaction.customId === 'ticket_replaces_modal') {
@@ -1192,15 +1200,75 @@ export class Bot {
         return;
       }
 
+      const cleanInvoiceId = invoiceId.trim();
+      
+      // Validar formato del invoice ID
+      if (!this.validateInvoiceIdFormat(cleanInvoiceId)) {
+        const instructionsEmbed = new EmbedBuilder()
+          .setColor(0xff9900)
+          .setTitle('❌ Invalid Invoice ID Format')
+          .setDescription('The invoice ID you provided does not match the required format.')
+          .addFields(
+            {
+              name: '📋 Required Format',
+              value: '`[12 alphanumeric characters]-[15 digits]`\n\n**Valid Examples:**\n• `6555d345ec623-0000008535737`\n• `f6fbff4893023-0000008534297`\n• `baa5d08755b17-0000008500435`',
+              inline: false
+            },
+            {
+              name: '🔍 How to Find Your Invoice ID',
+              value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the Invoice ID (format: `xxxxx-xxxxxxxxxxxxx`)\n\n**Note:** The Invoice ID is different from the order number. Look for a code that matches the format above.',
+              inline: false
+            },
+            {
+              name: '💡 What You Entered',
+              value: `\`${cleanInvoiceId}\`\n\nThis doesn\'t match the required format. Please check your invoice and try again.`,
+              inline: false
+            }
+          )
+          .setFooter({ text: 'Need help? Contact support staff' })
+          .setTimestamp();
+
+        await interaction.reply({
+          embeds: [instructionsEmbed],
+          ephemeral: true
+        });
+        return;
+      }
+
       await interaction.deferReply({ ephemeral: true });
       
       const guild = interaction.guild;
       const user = interaction.user;
       
-      const result = await TicketManager.createTicket(guild, user, 'replaces', invoiceId);
+      const result = await TicketManager.createTicket(guild, user, 'replaces', cleanInvoiceId);
+      
+      // Mensaje después de crear el ticket pidiendo prueba
+      const proofEmbed = new EmbedBuilder()
+        .setColor(0x00ff00)
+        .setTitle('✅ Replace Ticket Created')
+        .setDescription(`Ticket **${result.ticketId}** has been created successfully!`)
+        .addFields(
+          {
+            name: '📋 Invoice ID',
+            value: `\`${cleanInvoiceId}\``,
+            inline: true
+          },
+          {
+            name: '📁 Channel',
+            value: `${result.channel}`,
+            inline: true
+          },
+          {
+            name: '📸 Next Steps',
+            value: '**Please upload proof images showing:**\n• The error message you\'re seeing\n• Screenshot of the account not working\n• Any relevant error details\n\nOur team will process your replacement request shortly.',
+            inline: false
+          }
+        )
+        .setFooter({ text: 'Shop System' })
+        .setTimestamp();
       
       await interaction.editReply({
-        content: `✅ Ticket ${result.ticketId} created in ${result.channel}\n\n📋 **Invoice ID:** ${invoiceId}\n\n💡 You can now upload proof images in the ticket channel.`
+        embeds: [proofEmbed]
       });
       return;
     }
@@ -1370,7 +1438,7 @@ export class Bot {
     }
 
     if (customId === 'setup_next') {
-      const maxSteps = 14; // 15 pasos (0-14)
+      const maxSteps = 15; // 16 pasos (0-15)
       if (session.step < maxSteps) {
         session.step++;
         const stepData = SetupWizard.getStepEmbed(session.step, session);
@@ -1398,7 +1466,7 @@ export class Bot {
 
     if (customId === 'setup_skip') {
       session.step++;
-      const maxSteps = 14; // 15 pasos (0-14)
+      const maxSteps = 15; // 16 pasos (0-15)
       if (session.step <= maxSteps) {
         const stepData = SetupWizard.getStepEmbed(session.step, session);
         if (stepData) {
@@ -1443,6 +1511,7 @@ export class Bot {
                      stepName === 'accept_channel' ? 'Accept Channel' :
                      stepName === 'staff_rating_support_channel' ? 'Staff Rating Support Channel' :
                      stepName === 'staff_feedbacks_channel' ? 'Staff Feedbacks Channel' :
+                     stepName === 'vouches_channel' ? 'Vouches/Feedbacks Channel' :
                      'Channel';
         modal = SetupWizard.createChannelModal(stepName, label);
       }
@@ -1512,6 +1581,7 @@ export class Bot {
                          stepName === 'accept_channel' ? 'acceptChannelId' :
                          stepName === 'staff_rating_support_channel' ? 'staffRatingSupportChannelId' :
                          stepName === 'staff_feedbacks_channel' ? 'staffFeedbacksChannelId' :
+                         stepName === 'vouches_channel' ? 'vouchesChannelId' :
                          'channelId';
         session.config[configKey] = value;
       }
@@ -1564,6 +1634,7 @@ export class Bot {
       acceptChannelId: session.config.acceptChannelId,
       staffRatingSupportChannelId: session.config.staffRatingSupportChannelId,
       staffFeedbacksChannelId: session.config.staffFeedbacksChannelId,
+      vouchesChannelId: session.config.vouchesChannelId,
       configuredBy: interaction.user.id,
       configuredByUsername: interaction.user.username
     });
@@ -1647,6 +1718,11 @@ export class Bot {
           name: '🌟 Staff Feedbacks',
           value: session.config.staffFeedbacksChannelId ? `<#${session.config.staffFeedbacksChannelId}>` : 'Not configured',
           inline: true
+        },
+        {
+          name: '💬 Vouches/Feedbacks Channel',
+          value: session.config.vouchesChannelId ? `<#${session.config.vouchesChannelId}>` : 'Not configured',
+          inline: true
         }
       )
       .setFooter({ text: `Configured by ${interaction.user.username}` })
@@ -1657,6 +1733,30 @@ export class Bot {
       embeds: [embed],
       components: []
     });
+
+    // Enviar mensaje al canal de vouches si está configurado
+    if (session.config.vouchesChannelId) {
+      try {
+        const vouchesChannel = await interaction.guild.channels.fetch(session.config.vouchesChannelId);
+        if (vouchesChannel) {
+          const vouchesWelcomeEmbed = new EmbedBuilder()
+            .setColor(0x5865F2)
+            .setTitle('💬 Vouches & Feedbacks Channel')
+            .setDescription('This channel is for customer vouches and feedback about our service.')
+            .addFields({
+              name: '⭐ How to Leave a Vouch',
+              value: 'Use the `/vouch` command to share your experience!\n\n**What to include:**\n• Your experience with the service\n• Rating (1-5 stars)\n• Optional proof screenshot\n\nYour feedback helps us improve and helps other customers make informed decisions.',
+              inline: false
+            })
+            .setFooter({ text: 'Thank you for your support!' })
+            .setTimestamp();
+          
+          await vouchesChannel.send({ embeds: [vouchesWelcomeEmbed] });
+        }
+      } catch (vouchError) {
+        console.error('[SETUP] Error sending vouches welcome message:', vouchError);
+      }
+    }
 
     SetupWizard.deleteSession(interaction.user.id);
 
