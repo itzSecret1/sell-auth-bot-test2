@@ -160,8 +160,8 @@ export class Bot {
               const cmdData = command.default.data.toJSON();
               this.slashCommands.push(cmdData);
               this.slashCommandsMap.set(cmdName, command.default);
-              // Log para verificar que vouches-restore se carga
-              if (cmdName === 'vouches-restore') {
+              // Log para verificar que vouches-restore y vouches-backup se cargan
+              if (cmdName === 'vouches-restore' || cmdName === 'vouches-backup') {
                 console.log(`[BOT] ✅ Loaded command: ${cmdName} (from ${file})`);
               }
             } else {
@@ -264,6 +264,11 @@ export class Bot {
             console.log(`[BOT] ✅ vouches-restore found in command list`);
           } else {
             console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
+          }
+          if (commandNames.includes('vouches-backup')) {
+            console.log(`[BOT] ✅ vouches-backup found in command list`);
+          } else {
+            console.warn(`[BOT] ⚠️  vouches-backup NOT found in command list!`);
           }
           
           // DIAGNÓSTICO COMPLETO ANTES DE REGISTRAR
@@ -1215,7 +1220,7 @@ export class Bot {
           .addFields(
             {
               name: '📋 Required Format',
-              value: '`[12 alphanumeric characters]-[15 digits]`\n\n**Valid Examples:**\n• `6555d345ec623-0000008535737`\n• `f6fbff4893023-0000008534297`\n• `baa5d08755b17-0000008500435`',
+              value: '`[12-14 alphanumeric characters]-[15 digits]`\n\n**Valid Examples:**\n• `6555d345ec623-0000008535737` (12 chars)\n• `f6fbff4893023-0000008534297` (13 chars)\n• `baa5d08755b17-0000008500435` (13 chars)\n• `35bd25e19030f-0000008489204` (14 chars)',
               inline: false
             },
               {
