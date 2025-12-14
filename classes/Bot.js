@@ -230,6 +230,18 @@ export class Bot {
           // Usar guild.commands.create() individualmente - método más confiable
           console.log(`[BOT] 📤 Starting individual command registration for ${totalCommands} commands...`);
           console.log(`[BOT] 🔍 Using guild.commands.create() method (more reliable than REST API)`);
+          console.log(`[BOT] 🔍 Guild ID: ${guildId}, Guild Name: ${guild.name}`);
+          console.log(`[BOT] 🔍 Bot User ID: ${this.client.user.id}`);
+          
+          // Verificar que el guild esté disponible
+          try {
+            console.log(`[BOT] 🔍 Verifying guild access...`);
+            await guild.fetch();
+            console.log(`[BOT] ✅ Guild is accessible`);
+          } catch (guildErr) {
+            console.error(`[BOT] ❌ Cannot access guild: ${guildErr.message}`);
+            throw guildErr;
+          }
           
           let success = 0;
           let failed = 0;
@@ -238,24 +250,39 @@ export class Bot {
           // Limpiar comandos existentes primero
           try {
             console.log(`[BOT] 🗑️  Cleaning existing commands...`);
-            const existing = await guild.commands.fetch();
+            const fetchStart = Date.now();
+            const existing = await Promise.race([
+              guild.commands.fetch(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout after 10s')), 10000))
+            ]);
+            const fetchTime = ((Date.now() - fetchStart) / 1000).toFixed(2);
             const existingCount = existing.size;
-            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete`);
+            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete (fetch took ${fetchTime}s)`);
             
             if (existingCount > 0) {
               for (const cmd of existing.values()) {
                 try {
-                  await guild.commands.delete(cmd.id);
-                  console.log(`[BOT] 🗑️  Deleted: ${cmd.name}`);
+                  console.log(`[BOT] 🗑️  Deleting: ${cmd.name} (ID: ${cmd.id})...`);
+                  const delStart = Date.now();
+                  await Promise.race([
+                    guild.commands.delete(cmd.id),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Delete timeout after 5s')), 5000))
+                  ]);
+                  const delTime = ((Date.now() - delStart) / 1000).toFixed(2);
+                  console.log(`[BOT] ✅ Deleted: ${cmd.name} (${delTime}s)`);
                 } catch (delErr) {
                   console.warn(`[BOT] ⚠️  Failed to delete ${cmd.name}: ${delErr.message}`);
                 }
               }
               console.log(`[BOT] ✅ Cleaned ${existingCount} existing command(s)`);
-              await new Promise(r => setTimeout(r, 2000)); // Wait 2s after deletion
+              console.log(`[BOT] ⏳ Waiting 2 seconds after deletion...`);
+              await new Promise(r => setTimeout(r, 2000));
+              console.log(`[BOT] ✅ Ready to register new commands`);
             }
           } catch (cleanErr) {
-            console.warn(`[BOT] ⚠️  Error cleaning commands: ${cleanErr.message}`);
+            console.error(`[BOT] ❌ Error cleaning commands: ${cleanErr.message}`);
+            console.error(`[BOT]    Error stack: ${cleanErr.stack}`);
+            // Continuar de todas formas
           }
           
           // Registrar comandos individualmente
@@ -265,14 +292,22 @@ export class Bot {
             
             try {
               console.log(`[BOT] 📝 [${i + 1}/${totalCommands}] Registering: ${cmd.name}...`);
+              console.log(`[BOT]    Command data: name="${cmd.name}", description="${cmd.description?.substring(0, 50)}..."`);
+              console.log(`[BOT]    Options count: ${cmd.options?.length || 0}`);
               
-              // Usar guild.commands.create() - método más confiable
-              const created = await guild.commands.create(cmd);
+              // Crear timeout para cada comando
+              const createPromise = guild.commands.create(cmd);
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error(`Command creation timeout after 15s`)), 15000)
+              );
+              
+              console.log(`[BOT]    Sending create request...`);
+              const created = await Promise.race([createPromise, timeoutPromise]);
               
               if (created && created.id) {
                 success++;
                 const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
-                console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s)`);
+                console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
                 
                 // Verificar vouches-restore específicamente
                 if (cmd.name === 'vouches-restore') {
@@ -292,13 +327,21 @@ export class Bot {
               failedCommands.push(cmd.name);
               const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
               
-              // Log detallado del error
+              // Log MUY detallado del error
               console.error(`[BOT] ❌ [${i + 1}/${totalCommands}] Failed: ${cmd.name} (${cmdTime}s)`);
+              console.error(`[BOT]    Error type: ${cmdErr.constructor?.name || 'Unknown'}`);
               console.error(`[BOT]    Error code: ${cmdErr.code || 'N/A'}`);
+              console.error(`[BOT]    Error status: ${cmdErr.status || 'N/A'}`);
               console.error(`[BOT]    Error message: ${cmdErr.message || 'Unknown error'}`);
+              if (cmdErr.stack) {
+                console.error(`[BOT]    Error stack: ${cmdErr.stack.split('\n').slice(0, 3).join('\n')}`);
+              }
+              if (cmdErr.requestData) {
+                console.error(`[BOT]    Request data: ${JSON.stringify(cmdErr.requestData).substring(0, 200)}`);
+              }
               
               // Si es rate limit, esperar más tiempo
-              if (cmdErr.code === 50035 || cmdErr.status === 429 || cmdErr.retry_after) {
+              if (cmdErr.code === 50035 || cmdErr.status === 429 || cmdErr.retry_after || cmdErr.message?.includes('rate limit')) {
                 const waitTime = cmdErr.retry_after ? (cmdErr.retry_after * 1000) : 2000;
                 console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s...`);
                 await new Promise(r => setTimeout(r, waitTime));
@@ -306,19 +349,25 @@ export class Bot {
                 // Reintentar este comando una vez
                 try {
                   console.log(`[BOT] 🔄 Retrying: ${cmd.name}...`);
-                  const retryCreated = await guild.commands.create(cmd);
+                  const retryPromise = guild.commands.create(cmd);
+                  const retryTimeout = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Retry timeout after 15s')), 15000)
+                  );
+                  const retryCreated = await Promise.race([retryPromise, retryTimeout]);
                   if (retryCreated && retryCreated.id) {
                     success++;
                     failed--;
                     failedCommands.pop();
-                    console.log(`[BOT] ✅ Retry successful: ${cmd.name}`);
+                    console.log(`[BOT] ✅ Retry successful: ${cmd.name} - ID: ${retryCreated.id}`);
                   }
                 } catch (retryErr) {
                   console.error(`[BOT] ❌ Retry failed for ${cmd.name}: ${retryErr.message}`);
+                  console.error(`[BOT]    Retry error code: ${retryErr.code || 'N/A'}`);
                 }
               }
               
               // Continuar con el siguiente comando
+              console.log(`[BOT] ⏭️  Continuing with next command...`);
               await new Promise(r => setTimeout(r, 500));
             }
           }
