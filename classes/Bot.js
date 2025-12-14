@@ -442,11 +442,75 @@ export class Bot {
                 
                 // Logging detallado del error HTTP
                 if (httpErr.response) {
+                  const errorData = httpErr.response.data || {};
+                  const errorCode = errorData.code;
+                  
                   console.error(`[BOT]    HTTP Error Response:`);
                   console.error(`[BOT]      Status: ${httpErr.response.status}`);
                   console.error(`[BOT]      Status Text: ${httpErr.response.statusText}`);
-                  console.error(`[BOT]      Data: ${JSON.stringify(httpErr.response.data).substring(0, 500)}`);
+                  console.error(`[BOT]      Error Code: ${errorCode || 'N/A'}`);
+                  console.error(`[BOT]      Data: ${JSON.stringify(errorData).substring(0, 500)}`);
                   console.error(`[BOT]      Headers: ${JSON.stringify(httpErr.response.headers).substring(0, 300)}`);
+                  
+                  // Detectar límite diario alcanzado (código 30034)
+                  if (errorCode === 30034 || errorData.message?.includes('Max number of daily application command creates')) {
+                    const retryAfter = errorData.retry_after || 86400; // Default 24 horas
+                    const hours = Math.floor(retryAfter / 3600);
+                    const minutes = Math.floor((retryAfter % 3600) / 60);
+                    
+                    console.error(`[BOT] ❌ CRITICAL: Daily command creation limit reached!`);
+                    console.error(`[BOT]    Discord allows 200 command creations per day per application.`);
+                    console.error(`[BOT]    You have reached this limit.`);
+                    console.error(`[BOT]    Wait time: ${hours}h ${minutes}m (${retryAfter}s)`);
+                    console.error(`[BOT]    SOLUTION: Use PUT batch method instead of POST (doesn't count against daily limit)`);
+                    
+                    // Cambiar a método PUT batch que NO cuenta contra el límite diario
+                    console.log(`[BOT] 🔄 Switching to PUT batch method (replaces commands, doesn't count against daily limit)...`);
+                    
+                    try {
+                      const putUrl = `https://discord.com/api/v10/applications/${this.client.user.id}/guilds/${guildId}/commands`;
+                      console.log(`[BOT]    Using PUT batch: ${putUrl}`);
+                      console.log(`[BOT]    Commands in batch: ${validCommands.length}`);
+                      
+                      const putResponse = await axios.put(putUrl, validCommands, {
+                        headers: {
+                          'Authorization': `Bot ${config.BOT_TOKEN}`,
+                          'Content-Type': 'application/json',
+                          'User-Agent': 'DiscordBot (https://github.com/discordjs/discord.js, 14.15.3)'
+                        },
+                        timeout: 60000 // 60 segundos para batch
+                      });
+                      
+                      if (putResponse.status >= 200 && putResponse.status < 300 && Array.isArray(putResponse.data)) {
+                        const registeredCount = putResponse.data.length;
+                        const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                        
+                        console.log(`[BOT] ✅ PUT batch successful! ${registeredCount}/${totalCommands} commands registered`);
+                        console.log(`[BOT]    Total time: ${totalTime}s`);
+                        
+                        const registeredNames = putResponse.data.map(c => c.name);
+                        if (registeredNames.includes('vouches-restore')) {
+                          const vouchesRestore = putResponse.data.find(c => c.name === 'vouches-restore');
+                          console.log(`[BOT] 🎯 vouches-restore successfully registered! ID: ${vouchesRestore.id}`);
+                        }
+                        
+                        return; // Éxito con PUT batch
+                      }
+                    } catch (putErr) {
+                      if (putErr.response) {
+                        console.error(`[BOT] ❌ PUT batch also failed: ${putErr.response.status}`);
+                        console.error(`[BOT]    Data: ${JSON.stringify(putErr.response.data)}`);
+                      } else {
+                        console.error(`[BOT] ❌ PUT batch failed: ${putErr.message}`);
+                      }
+                    }
+                    
+                    // Si PUT también falla, informar al usuario
+                    console.error(`[BOT] ❌ Cannot register commands: Daily limit reached and PUT batch failed`);
+                    console.error(`[BOT]    Please wait ${hours}h ${minutes}m before trying again`);
+                    console.error(`[BOT]    Or reset your bot token to get a fresh daily limit`);
+                    return; // Salir sin continuar
+                  }
                 } else if (httpErr.request) {
                   console.error(`[BOT]    HTTP Request Error:`);
                   console.error(`[BOT]      No response received`);
@@ -492,6 +556,23 @@ export class Bot {
               console.error(`[BOT]    Error message: ${cmdErr.message || 'Unknown error'}`);
               console.error(`[BOT]    Error name: ${cmdErr.name || 'N/A'}`);
               
+              // Extraer información del error HTTP si está disponible
+              if (cmdErr.response) {
+                const errorData = cmdErr.response.data || {};
+                const errorCode = errorData.code;
+                const retryAfter = errorData.retry_after;
+                
+                console.error(`[BOT]    HTTP Status: ${cmdErr.response.status}`);
+                console.error(`[BOT]    Error Code: ${errorCode || 'N/A'}`);
+                console.error(`[BOT]    Retry After: ${retryAfter || 'N/A'}s`);
+                
+                // Si es límite diario, ya se manejó arriba y debería haber salido
+                if (errorCode === 30034) {
+                  console.error(`[BOT]    ⚠️  Daily limit reached - should have switched to PUT batch`);
+                  // Continuar para intentar PUT batch en el siguiente ciclo
+                }
+              }
+              
               if (cmdErr.stack) {
                 const stackLines = cmdErr.stack.split('\n').slice(0, 5);
                 stackLines.forEach((line, idx) => {
@@ -499,33 +580,85 @@ export class Bot {
                 });
               }
               
-              // Si es rate limit, esperar más tiempo
-              if (cmdErr.code === 50035 || cmdErr.status === 429 || cmdErr.retry_after || cmdErr.message?.includes('rate limit')) {
-                const waitTime = cmdErr.retry_after ? (cmdErr.retry_after * 1000) : 3000;
+              // Si es rate limit normal (no límite diario), esperar y reintentar
+              if (cmdErr.response?.status === 429 && cmdErr.response?.data?.code !== 30034) {
+                const retryAfter = cmdErr.response.data?.retry_after || 3;
+                const waitTime = retryAfter * 1000;
                 console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s...`);
                 await new Promise(r => setTimeout(r, waitTime));
                 
                 // Reintentar este comando una vez
                 try {
                   console.log(`[BOT] 🔄 Retrying: ${cmd.name}...`);
-                  const retryCreated = await Promise.race([
-                    guild.commands.create(cmd),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Retry timeout')), 20000))
-                  ]);
-                  if (retryCreated && retryCreated.id) {
+                  const retryUrl = `https://discord.com/api/v10/applications/${this.client.user.id}/guilds/${guildId}/commands`;
+                  const retryResponse = await axios.post(retryUrl, cmd, {
+                    headers: {
+                      'Authorization': `Bot ${config.BOT_TOKEN}`,
+                      'Content-Type': 'application/json'
+                    },
+                    timeout: 30000
+                  });
+                  
+                  if (retryResponse.status >= 200 && retryResponse.status < 300 && retryResponse.data?.id) {
                     success++;
                     failed--;
                     failedCommands.pop();
-                    console.log(`[BOT] ✅ Retry successful: ${cmd.name} - ID: ${retryCreated.id}`);
+                    console.log(`[BOT] ✅ Retry successful: ${cmd.name} - ID: ${retryResponse.data.id}`);
+                    continue; // Continuar con el siguiente comando
                   }
                 } catch (retryErr) {
                   console.error(`[BOT] ❌ Retry failed for ${cmd.name}: ${retryErr.message}`);
-                  console.error(`[BOT]    Retry error code: ${retryErr.code || 'N/A'}`);
+                  if (retryErr.response?.data?.code === 30034) {
+                    console.error(`[BOT]    Daily limit still active - will try PUT batch at end`);
+                  }
                 }
               }
               
               // Continuar con el siguiente comando
               await new Promise(r => setTimeout(r, 500));
+            }
+          }
+          
+          // Si muchos comandos fallaron por límite diario, intentar PUT batch como último recurso
+          if (failed > 0 && failedCommands.length > 0) {
+            console.log(`[BOT] 🔄 Attempting PUT batch as fallback for ${failed} failed commands...`);
+            
+            try {
+              const putUrl = `https://discord.com/api/v10/applications/${this.client.user.id}/guilds/${guildId}/commands`;
+              console.log(`[BOT]    PUT URL: ${putUrl}`);
+              console.log(`[BOT]    Commands to register: ${validCommands.length}`);
+              
+              const putResponse = await axios.put(putUrl, validCommands, {
+                headers: {
+                  'Authorization': `Bot ${config.BOT_TOKEN}`,
+                  'Content-Type': 'application/json',
+                  'User-Agent': 'DiscordBot (https://github.com/discordjs/discord.js, 14.15.3)'
+                },
+                timeout: 60000
+              });
+              
+              if (putResponse.status >= 200 && putResponse.status < 300 && Array.isArray(putResponse.data)) {
+                const registeredCount = putResponse.data.length;
+                success = registeredCount;
+                failed = totalCommands - registeredCount;
+                failedCommands.length = 0;
+                
+                console.log(`[BOT] ✅ PUT batch fallback successful!`);
+                console.log(`[BOT]    Registered: ${registeredCount}/${totalCommands} commands`);
+                
+                const registeredNames = putResponse.data.map(c => c.name);
+                if (registeredNames.includes('vouches-restore')) {
+                  const vouchesRestore = putResponse.data.find(c => c.name === 'vouches-restore');
+                  console.log(`[BOT] 🎯 vouches-restore registered via PUT batch! ID: ${vouchesRestore.id}`);
+                }
+              }
+            } catch (putErr) {
+              if (putErr.response) {
+                console.error(`[BOT] ❌ PUT batch fallback failed: ${putErr.response.status}`);
+                console.error(`[BOT]    Data: ${JSON.stringify(putErr.response.data)}`);
+              } else {
+                console.error(`[BOT] ❌ PUT batch fallback failed: ${putErr.message}`);
+              }
             }
           }
           
@@ -539,6 +672,14 @@ export class Bot {
           
           if (failedCommands.length > 0) {
             console.warn(`[BOT] ⚠️  Failed commands: ${failedCommands.join(', ')}`);
+          }
+          
+          // Advertencia sobre límite diario si muchos fallaron
+          if (failed > 10) {
+            console.warn(`[BOT] ⚠️  WARNING: Many commands failed. Possible causes:`);
+            console.warn(`[BOT]    1. Daily command creation limit reached (200/day)`);
+            console.warn(`[BOT]    2. Rate limiting from Discord`);
+            console.warn(`[BOT]    SOLUTION: Wait 24 hours or reset bot token for fresh limit`);
           }
           
           // Verificar vouches-restore en los comandos registrados
