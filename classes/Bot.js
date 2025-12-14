@@ -204,36 +204,22 @@ export class Bot {
         try {
           console.log(`[BOT] 📋 Registering commands in: ${guild.name} (${guildId})`);
           
-          // Limpiar comandos existentes primero
-          try {
-            const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
-            const existingCommands = await rest.get(route).catch(() => []);
-            
-            if (existingCommands.length > 0) {
-              console.log(`[BOT] 🗑️  Deleting ${existingCommands.length} existing command(s) in ${guild.name}...`);
-              for (const cmd of existingCommands) {
-                await rest.delete(Routes.applicationGuildCommand(this.client.user.id, guildId, cmd.id))
-                  .catch(() => {}); // Silenciar errores de eliminación
-              }
-              await new Promise(r => setTimeout(r, 2000));
+          // Validar y filtrar comandos antes de registrar
+          const validCommands = this.slashCommands.filter(cmd => {
+            if (!cmd || !cmd.name || !cmd.description) {
+              console.warn(`[BOT] ⚠️  Skipping invalid command: ${cmd?.name || 'unknown'}`);
+              return false;
             }
-          } catch (e) {
-            console.warn(`[BOT] ⚠️  Error cleaning existing commands: ${e.message}`);
-          }
+            return true;
+          });
 
-          // Registrar comandos individualmente usando REST API PUT
-          let success = 0;
-          let failed = 0;
-          const totalCommands = this.slashCommands.length;
+          const totalCommands = validCommands.length;
           const startTime = Date.now();
           
-          console.log(`[BOT] 📝 Registering ${totalCommands} command(s) individually in ${guild.name}...`);
-          console.log(`[BOT] ⏱️  Estimated time: ~${Math.ceil(totalCommands * 0.5)} seconds...`);
-          
-          const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
+          console.log(`[BOT] 📝 Registering ${totalCommands} command(s) in ${guild.name}...`);
           
           // Log lista de comandos que se van a registrar
-          const commandNames = this.slashCommands.map(c => c.name).sort();
+          const commandNames = validCommands.map(c => c.name).sort();
           console.log(`[BOT] 📋 Commands to register: ${commandNames.join(', ')}`);
           if (commandNames.includes('vouches-restore')) {
             console.log(`[BOT] ✅ vouches-restore found in command list`);
@@ -241,72 +227,59 @@ export class Bot {
             console.warn(`[BOT] ⚠️  vouches-restore NOT found in command list!`);
           }
           
-          for (let i = 0; i < this.slashCommands.length; i++) {
-            const cmd = this.slashCommands[i];
+          // Usar PUT con TODOS los comandos a la vez - método correcto y eficiente
+          const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
+          
+          try {
+            console.log(`[BOT] 📤 Sending batch registration request...`);
             
-            // Validar comando
-            if (!cmd || !cmd.name || !cmd.description) {
-              console.warn(`[BOT] ⚠️  Skipping invalid command at index ${i}`);
-              failed++;
-              continue;
+            // PUT reemplaza TODOS los comandos con el array proporcionado
+            const result = await rest.put(route, { 
+              body: validCommands,
+              timeout: 30000 // 30 segundos de timeout
+            });
+            
+            if (result && Array.isArray(result)) {
+              const registeredCount = result.length;
+              const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+              
+              console.log(`[BOT] ✅ ${guild.name}: ${registeredCount}/${totalCommands} commands registered successfully (took ${totalTime}s)`);
+              
+              // Verificar que vouches-restore se registró
+              const registeredNames = result.map(c => c.name);
+              if (registeredNames.includes('vouches-restore')) {
+                console.log(`[BOT] ✅ vouches-restore successfully registered!`);
+              } else {
+                console.warn(`[BOT] ⚠️  vouches-restore was NOT registered!`);
+              }
+            } else {
+              throw new Error('Invalid response from Discord API');
             }
+          } catch (err) {
+            console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, err.message || err.code || err);
             
-            // Log especial para vouches-restore
-            if (cmd.name === 'vouches-restore') {
-              console.log(`[BOT] 🔍 Registering vouches-restore (index ${i})...`);
-            }
-            
-            let registered = false;
-            let retries = 0;
-            const maxRetries = 1; // Solo 1 retry para ser más rápido
-            
-            while (!registered && retries <= maxRetries) {
+            // Si es rate limit, esperar y reintentar una vez
+            if (err.status === 429 || err.retry_after) {
+              const waitTime = err.retry_after ? (err.retry_after * 1000) : 5000;
+              console.log(`[BOT] ⏳ Rate limited, waiting ${waitTime/1000}s before retry...`);
+              await new Promise(r => setTimeout(r, waitTime));
+              
               try {
-                // Usar PUT con array de un solo comando - método correcto de Discord.js
-                const result = await rest.put(route, { body: [cmd] });
+                console.log(`[BOT] 🔄 Retrying batch registration...`);
+                const result = await rest.put(route, { 
+                  body: validCommands,
+                  timeout: 30000
+                });
                 
-                if (result && result.length > 0) {
-                  registered = true;
-                  success++;
-                  
-                  // Calcular tiempo promedio desde el inicio
-                  const elapsedTime = (Date.now() - startTime) / 1000;
-                  const avgTime = (elapsedTime / (i + 1)).toFixed(2);
-                  
-                  if ((i + 1) % 5 === 0 || i === 0 || i === totalCommands - 1) {
-                    console.log(`[BOT] 📊 Progress: ${i + 1}/${totalCommands} commands registered (avg: ${avgTime}s per command, elapsed: ${elapsedTime.toFixed(1)}s)...`);
-                  }
-                  
-                  // Esperar entre comandos para evitar rate limits
-                  await new Promise(r => setTimeout(r, 400));
-                } else {
-                  throw new Error('Empty response from API');
+                if (result && Array.isArray(result)) {
+                  const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+                  console.log(`[BOT] ✅ ${guild.name}: ${result.length}/${totalCommands} commands registered successfully after retry (took ${totalTime}s)`);
                 }
-              } catch (err) {
-                retries++;
-                
-                // Si es rate limit, esperar y reintentar
-                if (err.status === 429 || err.retry_after) {
-                  const waitTime = err.retry_after ? (err.retry_after * 1000) : 2000;
-                  if (retries <= maxRetries) {
-                    console.log(`[BOT] ⏳ Rate limited on ${cmd.name}, waiting ${waitTime/1000}s...`);
-                    await new Promise(r => setTimeout(r, waitTime));
-                    continue;
-                  }
-                }
-                
-                // Si falló después de todos los reintentos
-                if (retries > maxRetries) {
-                  failed++;
-                  console.warn(`[BOT] ⚠️  Failed to register ${cmd.name}: ${err.message || err.code || 'Unknown error'}`);
-                  break;
-                }
+              } catch (retryErr) {
+                console.error(`[BOT] ❌ Retry failed: ${retryErr.message || retryErr.code || retryErr}`);
               }
             }
           }
-          
-          const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-          console.log(`[BOT] ✅ ${guild.name}: ${success}/${totalCommands} commands registered successfully, ${failed} failed (took ${totalTime}s)`);
           
         } catch (error) {
           console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, error.message);
