@@ -231,13 +231,18 @@ export class Bot {
           const route = Routes.applicationGuildCommands(this.client.user.id, guildId);
           
           try {
-            console.log(`[BOT] 📤 Sending batch registration request...`);
+            console.log(`[BOT] 📤 Sending batch registration request for ${totalCommands} commands...`);
             
-            // PUT reemplaza TODOS los comandos con el array proporcionado
-            const result = await rest.put(route, { 
-              body: validCommands,
-              timeout: 30000 // 30 segundos de timeout
+            // Crear una promesa con timeout manual para mejor control
+            const registrationPromise = rest.put(route, { 
+              body: validCommands
             });
+            
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Registration timeout after 60s')), 60000)
+            );
+            
+            const result = await Promise.race([registrationPromise, timeoutPromise]);
             
             if (result && Array.isArray(result)) {
               const registeredCount = result.length;
@@ -253,23 +258,28 @@ export class Bot {
                 console.warn(`[BOT] ⚠️  vouches-restore was NOT registered!`);
               }
             } else {
-              throw new Error('Invalid response from Discord API');
+              throw new Error('Invalid response from Discord API - expected array');
             }
           } catch (err) {
             console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, err.message || err.code || err);
+            if (err.stack) {
+              console.error(`[BOT] Stack trace:`, err.stack);
+            }
             
             // Si es rate limit, esperar y reintentar una vez
-            if (err.status === 429 || err.retry_after) {
+            if (err.status === 429 || err.retry_after || err.message?.includes('rate limit')) {
               const waitTime = err.retry_after ? (err.retry_after * 1000) : 5000;
               console.log(`[BOT] ⏳ Rate limited, waiting ${waitTime/1000}s before retry...`);
               await new Promise(r => setTimeout(r, waitTime));
               
               try {
                 console.log(`[BOT] 🔄 Retrying batch registration...`);
-                const result = await rest.put(route, { 
-                  body: validCommands,
-                  timeout: 30000
-                });
+                const retryPromise = rest.put(route, { body: validCommands });
+                const retryTimeout = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Retry timeout after 60s')), 60000)
+                );
+                
+                const result = await Promise.race([retryPromise, retryTimeout]);
                 
                 if (result && Array.isArray(result)) {
                   const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
@@ -277,7 +287,11 @@ export class Bot {
                 }
               } catch (retryErr) {
                 console.error(`[BOT] ❌ Retry failed: ${retryErr.message || retryErr.code || retryErr}`);
+                throw retryErr;
               }
+            } else {
+              // Si no es rate limit, lanzar el error
+              throw err;
             }
           }
           
@@ -567,15 +581,20 @@ export class Bot {
       }
 
       const ticketId = customId.replace('ticket_claim_', '');
+      console.log(`[TICKET] Claim button clicked for ticket: ${ticketId}`);
+      
       const ticket = TicketManager.getTicket(ticketId);
       
       if (!ticket) {
+        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
         await interaction.reply({
-          content: '❌ Ticket not found',
+          content: `❌ Ticket not found: ${ticketId}`,
           ephemeral: true
         });
         return;
       }
+      
+      console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
 
       await interaction.deferUpdate();
       const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
@@ -592,15 +611,20 @@ export class Bot {
     // Cerrar ticket
     if (customId.startsWith('ticket_close_')) {
       const ticketId = customId.replace('ticket_close_', '');
+      console.log(`[TICKET] Close button clicked for ticket: ${ticketId}`);
+      
       const ticket = TicketManager.getTicket(ticketId);
       
       if (!ticket) {
+        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
         await interaction.reply({
-          content: '❌ Ticket not found',
+          content: `❌ Ticket not found: ${ticketId}`,
           ephemeral: true
         });
         return;
       }
+      
+      console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
 
       // Verificar que el usuario tenga rol de staff/admin O sea el creador del ticket
       const guildConfig = GuildConfig.getConfig(interaction.guild.id);

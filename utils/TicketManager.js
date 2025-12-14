@@ -1045,7 +1045,28 @@ export class TicketManager {
    * Obtener ticket por ID
    */
   static getTicket(ticketId) {
-    return ticketsData.tickets[ticketId];
+    // Recargar tickets antes de buscar para asegurar datos actualizados
+    loadTickets();
+    
+    // Buscar por ID exacto
+    if (ticketsData.tickets[ticketId]) {
+      return ticketsData.tickets[ticketId];
+    }
+    
+    // Si no se encuentra, buscar sin el prefijo TKT- si está presente
+    const cleanId = ticketId.replace(/^TKT-?/i, '');
+    const formattedId = `TKT-${cleanId.padStart(4, '0')}`;
+    
+    if (ticketsData.tickets[formattedId]) {
+      return ticketsData.tickets[formattedId];
+    }
+    
+    // Buscar en todos los tickets por ID parcial
+    return Object.values(ticketsData.tickets).find(t => 
+      t.id === ticketId || 
+      t.id === formattedId ||
+      t.id.replace(/^TKT-?/i, '') === cleanId
+    );
   }
 
   /**
