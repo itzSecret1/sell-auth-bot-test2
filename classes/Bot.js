@@ -163,7 +163,7 @@ export class Bot {
               // Log para verificar que vouches-restore y vouches-backup se cargan
               if (cmdName === 'vouches-restore' || cmdName === 'vouches-backup') {
                 console.log(`[BOT] ✅ Loaded command: ${cmdName} (from ${file})`);
-              }
+            }
             } else {
               console.warn(`[BOT] ⚠️  Duplicate command name: ${cmdName} (from ${file})`);
             }
@@ -320,39 +320,9 @@ export class Bot {
           
           console.log(`[BOT] 🔍 ========== FIN DIAGNÓSTICO ==========`);
           
-          // Limpiar comandos existentes primero
-          try {
-            console.log(`[BOT] 🗑️  Cleaning existing commands...`);
-            const cleanStart = Date.now();
-            const existing = await Promise.race([
-              guild.commands.fetch(),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Fetch timeout')), 10000))
-            ]);
-            const cleanTime = ((Date.now() - cleanStart) / 1000).toFixed(2);
-            const existingCount = existing.size;
-            console.log(`[BOT] 📊 Found ${existingCount} existing command(s) to delete (fetch took ${cleanTime}s)`);
-            
-            if (existingCount > 0) {
-              for (const cmd of existing.values()) {
-                try {
-                  const delStart = Date.now();
-                  await Promise.race([
-                    guild.commands.delete(cmd.id),
-                    new Promise((_, reject) => setTimeout(() => reject(new Error('Delete timeout')), 5000))
-                  ]);
-                  const delTime = ((Date.now() - delStart) / 1000).toFixed(2);
-                  console.log(`[BOT] 🗑️  Deleted: ${cmd.name} (${delTime}s)`);
-                } catch (delErr) {
-                  console.warn(`[BOT] ⚠️  Failed to delete ${cmd.name}: ${delErr.message}`);
-                }
-              }
-              console.log(`[BOT] ✅ Cleaned ${existingCount} existing command(s)`);
-              await new Promise(r => setTimeout(r, 2000)); // Wait 2s after deletion
-            }
-          } catch (cleanErr) {
-            console.error(`[BOT] ❌ Error cleaning commands: ${cleanErr.message}`);
-            console.error(`[BOT]    Stack: ${cleanErr.stack}`);
-          }
+          // No necesitamos limpiar comandos antes del PUT batch
+          // PUT batch reemplaza todos los comandos automáticamente
+          console.log(`[BOT] ℹ️  Skipping individual command deletion - PUT batch will replace all commands`);
           
           // Intentar primero con PUT batch (no cuenta contra límite diario)
           console.log(`[BOT] 📝 Attempting PUT batch first (recommended - doesn't count against daily limit)...`);
@@ -421,8 +391,8 @@ export class Bot {
           
           // Fallback: Registrar comandos individualmente usando POST (solo si PUT falló)
           console.log(`[BOT] 📝 Fallback: Starting individual POST command registration...`);
-          
-          let success = 0;
+
+      let success = 0;
           let failed = 0;
           const failedCommands = [];
           let dailyLimitReached = false;
@@ -460,7 +430,7 @@ export class Bot {
                 const created = response.data;
                 
                 if (created && created.id) {
-                  success++;
+          success++;
                   const cmdTime = ((Date.now() - cmdStartTime) / 1000).toFixed(2);
                   console.log(`[BOT] ✅ [${i + 1}/${totalCommands}] Registered: ${cmd.name} (${cmdTime}s) - ID: ${created.id}`);
                   
@@ -657,7 +627,7 @@ export class Bot {
           
           return; // Salir temprano, ya procesamos todo
           
-        } catch (error) {
+    } catch (error) {
           console.error(`[BOT] ❌ Error registering commands in ${guild.name}:`, error.message);
           console.error(`[BOT]    Error stack: ${error.stack}`);
         }
