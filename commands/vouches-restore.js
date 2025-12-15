@@ -12,9 +12,14 @@ function getBackupFiles() {
       return [];
     }
     const files = readdirSync(BACKUPS_DIR)
-      .filter(file => file.startsWith('vouches_backup_') && file.endsWith('.json'))
+      .filter(file => 
+        (file.startsWith('vouches_backup_') || 
+         file.startsWith('vouches_instant_') || 
+         file.startsWith('vouches_daily_')) && 
+        file.endsWith('.json')
+      )
       .sort()
-      .reverse(); // Más recientes primero
+      .reverse(); // Most recent first
     return files;
   } catch (error) {
     console.error('[VOUCHES-RESTORE] Error reading backup files:', error);
