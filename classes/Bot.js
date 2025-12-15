@@ -1190,36 +1190,87 @@ export class Bot {
       let totalInvoicesChecked = 0;
       
       try {
-        console.log(`[TICKET-MODAL] Verificando invoice ID: "${cleanInvoiceId}"`);
+        console.log(`[TICKET-MODAL] Verifying invoice ID: "${cleanInvoiceId}"`);
         
-        // Buscar invoice en la API (similar a invoice-view)
+        // Verify API key is configured
+        if (!this.api.apiKey || this.api.apiKey === '') {
+          console.error('[TICKET-MODAL] ❌ SA_API_KEY is not configured!');
+          await interaction.editReply({
+            content: `❌ **API Configuration Error**\n\nThe SellAuth API key is not configured. Please contact an administrator.\n\n**Error:** SA_API_KEY is missing or empty.`
+          });
+          return;
+        }
+        
+        // Verify shop ID is configured
+        if (!this.api.shopId || this.api.shopId === '') {
+          console.error('[TICKET-MODAL] ❌ SA_SHOP_ID is not configured!');
+          await interaction.editReply({
+            content: `❌ **API Configuration Error**\n\nThe SellAuth Shop ID is not configured. Please contact an administrator.\n\n**Error:** SA_SHOP_ID is missing or empty.`
+          });
+          return;
+        }
+        
+        console.log(`[TICKET-MODAL] Using Shop ID: ${this.api.shopId}`);
+        
+        // Search invoice in API (similar to invoice-view)
         for (let page = 1; page <= 50; page++) {
           try {
             const response = await this.api.get(`shops/${this.api.shopId}/invoices?limit=250&page=${page}`);
             const invoicesList = Array.isArray(response) ? response : response?.data || [];
             
             if (invoicesList.length === 0) {
-              console.log(`[TICKET-MODAL] No more invoices on page ${page}`);
+              console.log(`[TICKET-MODAL] No more invoices on page ${page}, stopping search`);
               break;
+            }
+            
+            // Debug: log first invoice structure on first page
+            if (page === 1 && invoicesList.length > 0) {
+              const firstInv = invoicesList[0];
+              console.log(`[TICKET-MODAL] Sample invoice structure - id: ${firstInv.id}, unique_id: ${firstInv.unique_id}, invoice_id: ${firstInv.invoice_id}`);
             }
 
             totalInvoicesChecked += invoicesList.length;
 
-            // Buscar invoice por ID en la página actual
+            // Search for invoice by ID in current page - more flexible matching
             for (const inv of invoicesList) {
-              // Verificar todos los campos posibles de ID
-              const idMatch = inv.id === cleanInvoiceId || 
-                              inv.unique_id === cleanInvoiceId ||
-                              inv.invoice_id === cleanInvoiceId || 
-                              inv.reference_id === cleanInvoiceId ||
-                              (inv.id && inv.id.toString() === cleanInvoiceId) ||
-                              (inv.invoice_id && inv.invoice_id.toString() === cleanInvoiceId) ||
-                              (inv.unique_id && inv.unique_id.toString() === cleanInvoiceId);
+              // Normalize the search ID (remove spaces, convert to lowercase)
+              const cleanIdLower = cleanInvoiceId.trim().toLowerCase().replace(/\s+/g, '');
+              
+              // Get all possible ID values from invoice
+              const possibleIds = [
+                inv.id?.toString(),
+                inv.unique_id?.toString(),
+                inv.invoice_id?.toString(),
+                inv.reference_id?.toString()
+              ].filter(Boolean).map(id => id.toLowerCase().replace(/\s+/g, ''));
+              
+              // Check exact match first
+              let idMatch = possibleIds.some(id => id === cleanIdLower);
+              
+              // If no exact match, try partial match (invoice ID usually has format: xxxxx-xxxxxxxxxxxxx)
+              if (!idMatch) {
+                // Try matching the part after the dash (the numeric part)
+                const parts = cleanIdLower.split('-');
+                if (parts.length === 2) {
+                  const [prefix, suffix] = parts;
+                  idMatch = possibleIds.some(id => {
+                    const idParts = id.split('-');
+                    if (idParts.length === 2) {
+                      return idParts[0] === prefix || idParts[1] === suffix || id === cleanIdLower;
+                    }
+                    return id.includes(prefix) || id.includes(suffix);
+                  });
+                } else {
+                  // Try substring match
+                  idMatch = possibleIds.some(id => id.includes(cleanIdLower) || cleanIdLower.includes(id));
+                }
+              }
               
               if (idMatch) {
                 invoiceExists = true;
                 invoiceData = inv;
-                console.log(`[TICKET-MODAL] ✅ Invoice encontrado en página ${page}: ${cleanInvoiceId}`);
+                console.log(`[TICKET-MODAL] ✅ Invoice found on page ${page}: ${cleanInvoiceId}`);
+                console.log(`[TICKET-MODAL] Matched invoice - id: ${inv.id}, unique_id: ${inv.unique_id}, invoice_id: ${inv.invoice_id}`);
                 break;
               }
             }
@@ -1228,49 +1279,75 @@ export class Bot {
 
           } catch (apiError) {
             console.error(`[TICKET-MODAL] Error fetching invoices page ${page}:`, apiError.message);
+            console.error(`[TICKET-MODAL] Error status: ${apiError.status}, data:`, apiError.data);
+            
+            // Handle authentication errors
+            if (apiError.status === 401) {
+              console.error('[TICKET-MODAL] ❌ Authentication failed - API key may be invalid or expired');
+              await interaction.editReply({
+                content: `❌ **Authentication Error**\n\nUnable to verify invoice ID. The SellAuth API key may be invalid or expired.\n\n**Error:** ${apiError.data?.message || 'Unauthenticated'}\n\nPlease contact an administrator to check the API configuration.`
+              });
+              return;
+            }
+            
             if (apiError.status === 429) {
-              // Rate limit, esperar un poco y continuar
+              // Rate limit, wait a bit and continue
+              console.warn(`[TICKET-MODAL] Rate limited, waiting 2 seconds...`);
               await new Promise(resolve => setTimeout(resolve, 2000));
+            } else if (apiError.status === 403) {
+              console.error('[TICKET-MODAL] ❌ Forbidden - API key may not have permission to access invoices');
+              await interaction.editReply({
+                content: `❌ **Permission Error**\n\nThe API key does not have permission to access invoices.\n\n**Error:** ${apiError.data?.message || 'Forbidden'}\n\nPlease contact an administrator.`
+              });
+              return;
             } else {
-              break;
+              // For other errors, continue to next page but log the error
+              console.warn(`[TICKET-MODAL] Non-critical error on page ${page}, continuing...`);
+              if (page >= 3) {
+                // Stop after 3 pages if we're getting errors
+                break;
+              }
             }
           }
         }
 
-        console.log(`[TICKET-MODAL] Búsqueda completada: ${totalInvoicesChecked} invoices verificados, encontrado: ${invoiceExists}`);
+        console.log(`[TICKET-MODAL] Search completed: ${totalInvoicesChecked} invoices checked, found: ${invoiceExists}`);
+        if (!invoiceExists) {
+          console.log(`[TICKET-MODAL] ⚠️ Invoice "${cleanInvoiceId}" not found after checking ${totalInvoicesChecked} invoices`);
+        }
 
       } catch (verifyError) {
-        console.error('[TICKET-MODAL] Error verificando invoice:', verifyError);
+        console.error('[TICKET-MODAL] Error verifying invoice:', verifyError);
         await interaction.editReply({
-          content: `❌ Error al verificar el invoice ID. Por favor, intenta de nuevo más tarde.\n\n**Error:** ${verifyError.message}`
+          content: `❌ Error verifying invoice ID. Please try again later.\n\n**Error:** ${verifyError.message}`
         });
         return;
       }
 
-      // Si el invoice no existe, mostrar error
+      // If invoice doesn't exist, show error
       if (!invoiceExists) {
         const errorEmbed = new EmbedBuilder()
           .setColor(0xff0000)
-          .setTitle('❌ Invoice No Encontrado')
-          .setDescription(`El Invoice ID que proporcionaste no existe en nuestra tienda.`)
+          .setTitle('❌ Invoice Not Found')
+          .setDescription(`The Invoice ID you provided does not exist in our store.`)
           .addFields(
             {
-              name: '💡 Invoice ID Ingresado',
+              name: '💡 Invoice ID Entered',
               value: `\`${cleanInvoiceId}\``,
               inline: false
             },
             {
-              name: '🔍 Verificación',
-              value: `Se verificaron **${totalInvoicesChecked}** invoices de la tienda y no se encontró coincidencia.`,
+              name: '🔍 Verification',
+              value: `Checked **${totalInvoicesChecked}** invoices from the store and no match was found.`,
               inline: false
             },
             {
-              name: '📋 Cómo Encontrar tu Invoice ID',
-              value: '**Paso 1:** Ve a [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Paso 2:** Inicia sesión en tu cuenta\n**Paso 3:** Navega a "My Orders" o "Purchase History"\n**Paso 4:** Encuentra tu orden y haz clic en ella\n**Paso 5:** Copia el Invoice ID completo\n\n**Nota:** Asegúrate de copiar el Invoice ID completo, no solo el número de orden.',
+              name: '📋 How to Find Your Invoice ID',
+              value: '**Step 1:** Go to [SellAuth Customer Dashboard](https://sellauth.com/dashboard)\n**Step 2:** Log in to your account\n**Step 3:** Navigate to "My Orders" or "Purchase History"\n**Step 4:** Find your order and click on it\n**Step 5:** Copy the complete Invoice ID\n\n**Note:** Make sure to copy the complete Invoice ID, not just the order number.',
               inline: false
             }
           )
-          .setFooter({ text: 'Si crees que esto es un error, contacta al soporte' })
+          .setFooter({ text: 'If you believe this is an error, please contact support' })
           .setTimestamp();
 
         await interaction.editReply({
@@ -1279,31 +1356,31 @@ export class Bot {
         return;
       }
 
-      // Verificar si hay algo fallando antes de continuar
+      // Check if there are any issues before continuing
       let hasErrors = false;
       const errors = [];
       
       try {
-        // Verificar que el invoice tenga datos válidos
+        // Verify that the invoice has valid data
         if (!invoiceData || typeof invoiceData !== 'object') {
           hasErrors = true;
-          errors.push('El invoice no tiene datos válidos');
+          errors.push('Invoice does not have valid data');
         }
 
-        // Verificar que el invoice esté completado (si es necesario)
+        // Verify that the invoice is completed (if necessary)
         if (invoiceData.status && invoiceData.status !== 'completed') {
           hasErrors = true;
-          errors.push(`El invoice tiene estado: ${invoiceData.status}`);
+          errors.push(`Invoice has status: ${invoiceData.status}`);
         }
 
         if (hasErrors) {
-          console.warn(`[TICKET-MODAL] Errores detectados en invoice ${cleanInvoiceId}:`, errors);
-          // Continuar de todas formas, pero loguear los errores
+          console.warn(`[TICKET-MODAL] Errors detected in invoice ${cleanInvoiceId}:`, errors);
+          // Continue anyway, but log the errors
         }
 
       } catch (checkError) {
-        console.error('[TICKET-MODAL] Error verificando estado del invoice:', checkError);
-        // Continuar de todas formas
+        console.error('[TICKET-MODAL] Error checking invoice status:', checkError);
+        // Continue anyway
       }
       
       const guild = interaction.guild;
@@ -1311,7 +1388,7 @@ export class Bot {
       
       const result = await TicketManager.createTicket(guild, user, 'replaces', cleanInvoiceId);
       
-      // Mensaje después de crear el ticket pidiendo prueba
+      // Message after creating ticket asking for proof
       const proofEmbed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setTitle('✅ Replace Ticket Created')

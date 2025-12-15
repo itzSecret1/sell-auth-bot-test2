@@ -10,8 +10,21 @@ export class Api {
 
   async get(endpoint, params = {}) {
     try {
+      // Verify API key is configured
+      if (!this.apiKey || this.apiKey.trim() === '') {
+        console.error('[API] ❌ SA_API_KEY is not configured or is empty!');
+        throw { 
+          message: 'API key not configured', 
+          status: 401, 
+          data: { message: 'SA_API_KEY environment variable is missing or empty' } 
+        };
+      }
+      
       const response = await axios.get(`${this.baseUrl}${endpoint}`, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
+        headers: { 
+          Authorization: `Bearer ${this.apiKey.trim()}`,
+          'Accept': 'application/json'
+        },
         params: params,
         timeout: 15000
       });
@@ -20,6 +33,14 @@ export class Api {
       const status = error.response?.status;
       const data = error.response?.data;
       console.error(`[API GET] ${endpoint} - Status: ${status}`, data);
+      
+      // Log more details for 401 errors
+      if (status === 401) {
+        console.error(`[API] ❌ Authentication failed for endpoint: ${endpoint}`);
+        console.error(`[API] ❌ API Key configured: ${this.apiKey ? 'Yes (length: ' + this.apiKey.length + ')' : 'No'}`);
+        console.error(`[API] ❌ Shop ID: ${this.shopId}`);
+      }
+      
       throw { message: 'Invalid response', status, data, error: error.message };
     }
   }

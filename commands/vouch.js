@@ -1,9 +1,16 @@
 import { SlashCommandBuilder, EmbedBuilder } from 'discord.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
 import { AdvancedCommandLogger } from '../utils/advancedCommandLogger.js';
 import { config } from '../utils/config.js';
 
 const VOUCHES_FILE = './vouches.json';
+const BACKUPS_DIR = './vouches_backups';
+
+// Crear directorio de backups si no existe
+if (!existsSync(BACKUPS_DIR)) {
+  mkdirSync(BACKUPS_DIR, { recursive: true });
+}
 
 // Cargar vouches
 function loadVouches() {
@@ -98,6 +105,18 @@ export default {
       // Guardar vouch
       vouchesData.vouches.push(vouch);
       saveVouches(vouchesData);
+
+      // Instant backup - backup inmediatamente después de guardar
+      try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const instantBackupFileName = `vouches_instant_${timestamp}.json`;
+        const instantBackupPath = join(BACKUPS_DIR, instantBackupFileName);
+        writeFileSync(instantBackupPath, JSON.stringify(vouchesData, null, 2), 'utf-8');
+        console.log(`[VOUCH] ✅ Instant backup created: ${instantBackupFileName} (${vouchesData.vouches.length} vouches)`);
+      } catch (backupError) {
+        console.error('[VOUCH] Error creating instant backup:', backupError);
+        // Don't fail the vouch creation if backup fails
+      }
 
       // Crear embed del vouch (formato mejorado)
       const shopUrl = config.SHOP_URL || 'https://sellauth.com';

@@ -1,5 +1,5 @@
 import { EmbedBuilder } from 'discord.js';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
 const BACKUP_CHANNEL_ID = '1442913427575013426';
@@ -46,28 +46,8 @@ export class DailyBackupReporter {
         }
       }
 
-      // Backup específico de vouches
-      try {
-        const { readFileSync: readVouches, existsSync: vouchesExists, writeFileSync: writeVouches, mkdirSync: mkdirVouches } = await import('fs');
-        const { join: joinVouches } = await import('path');
-        const vouchesBackupDir = './vouches_backups';
-        
-        if (!vouchesExists(vouchesBackupDir)) {
-          mkdirVouches(vouchesBackupDir, { recursive: true });
-        }
-        
-        if (vouchesExists('./vouches.json')) {
-          const vouchesData = JSON.parse(readVouches('./vouches.json', 'utf-8'));
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-          const vouchesBackupFile = `vouches_backup_${timestamp}.json`;
-          const vouchesBackupPath = joinVouches(vouchesBackupDir, vouchesBackupFile);
-          
-          writeVouches(vouchesBackupPath, JSON.stringify(vouchesData, null, 2), 'utf-8');
-          console.log(`[BACKUP] ✅ Vouches backup creado: ${vouchesBackupFile} (${vouchesData.vouches?.length || 0} vouches)`);
-        }
-      } catch (vouchesError) {
-        console.error('[BACKUP] Error en backup de vouches:', vouchesError.message);
-      }
+      // Consolidate daily vouches backups
+      await this.consolidateDailyVouchesBackups();
 
       writeFileSync(backupPath, JSON.stringify(backupData, null, 2));
 
@@ -107,6 +87,28 @@ export class DailyBackupReporter {
         return;
       }
 
+      // Get vouches backup info
+      const vouchesBackupDir = './vouches_backups';
+      let vouchesBackupInfo = null;
+      if (existsSync(vouchesBackupDir)) {
+        const today = new Date().toISOString().split('T')[0];
+        const consolidatedFile = `vouches_daily_${today}.json`;
+        const consolidatedPath = join(vouchesBackupDir, consolidatedFile);
+        
+        if (existsSync(consolidatedPath)) {
+          try {
+            const consolidatedData = JSON.parse(readFileSync(consolidatedPath, 'utf-8'));
+            vouchesBackupInfo = {
+              totalVouches: consolidatedData.totalVouches || 0,
+              date: consolidatedData.date || today,
+              instantBackupsConsolidated: consolidatedData.instantBackupsConsolidated || 0
+            };
+          } catch (e) {
+            console.error('[BACKUP] Error reading consolidated backup:', e.message);
+          }
+        }
+      }
+
       const embed = new EmbedBuilder()
         .setColor(0x00ff00)
         .setTitle('✅ Daily Backup Completed')
@@ -121,18 +123,30 @@ export class DailyBackupReporter {
             name: '📦 Files Backed Up',
             value: `**${backup.filesBackedUp}** files`,
             inline: true
-          },
-          {
-            name: '💾 Backup Location',
-            value: `\`${backup.path}\``,
-            inline: false
-          },
-          {
-            name: '📋 Backed Up Files',
-            value: '• variantsData.json\n• replaceHistory.json\n• sessionState.json',
-            inline: false
           }
-        )
+        );
+
+      // Add vouches backup info if available
+      if (vouchesBackupInfo) {
+        embed.addFields({
+          name: '💬 Vouches Backup',
+          value: `**Total Vouches:** ${vouchesBackupInfo.totalVouches}\n**Date:** ${vouchesBackupInfo.date}\n**Instant Backups Consolidated:** ${vouchesBackupInfo.instantBackupsConsolidated}`,
+          inline: false
+        });
+      }
+
+      embed.addFields(
+        {
+          name: '💾 Backup Location',
+          value: `\`${backup.path}\``,
+          inline: false
+        },
+        {
+          name: '📋 Backed Up Files',
+          value: '• variantsData.json\n• replaceHistory.json\n• sessionState.json\n• vouches.json (consolidated)',
+          inline: false
+        }
+      );
         .setFooter({
           text: 'SellAuth Bot Backup System',
           iconURL: 'https://cdn.discordapp.com/app-icons/1009849347124862193/2a07cee6e1c97f4ac1cbc8c8ef0b2d1c.png'
@@ -143,6 +157,87 @@ export class DailyBackupReporter {
       console.log('[BACKUP] ✅ Daily backup report sent');
     } catch (error) {
       console.error('[BACKUP] Error sending report:', error.message);
+    }
+  }
+
+  /**
+   * Consolidate all instant backups from today into one daily backup
+   */
+  async consolidateDailyVouchesBackups() {
+    try {
+      const vouchesBackupDir = './vouches_backups';
+      
+      if (!existsSync(vouchesBackupDir)) {
+        const fs = await import('fs');
+        fs.mkdirSync(vouchesBackupDir, { recursive: true });
+        return;
+      }
+
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date();
+      const todayStr = today.toISOString().split('T')[0]; // YYYY-MM-DD
+      
+      // Read all instant backup files from today
+      const allFiles = readdirSync(vouchesBackupDir);
+      const instantBackupsToday = allFiles.filter(file => 
+        file.startsWith('vouches_instant_') && 
+        file.includes(todayStr) &&
+        file.endsWith('.json')
+      );
+
+      if (instantBackupsToday.length === 0) {
+        console.log(`[BACKUP] No instant backups found for today (${todayStr})`);
+        return;
+      }
+
+      console.log(`[BACKUP] Found ${instantBackupsToday.length} instant backups for today`);
+
+      // Read the latest vouches.json (current state with all vouches)
+      let allVouches = { vouches: [], nextNumber: 1 };
+      if (existsSync('./vouches.json')) {
+        try {
+          allVouches = JSON.parse(readFileSync('./vouches.json', 'utf-8'));
+        } catch (e) {
+          console.error('[BACKUP] Error reading vouches.json:', e.message);
+        }
+      }
+
+      // Create consolidated daily backup
+      const consolidatedBackup = {
+        date: todayStr,
+        consolidatedAt: new Date().toISOString(),
+        totalVouches: allVouches.vouches?.length || 0,
+        nextNumber: allVouches.nextNumber || 1,
+        vouches: allVouches.vouches || [],
+        instantBackupsConsolidated: instantBackupsToday.length,
+        note: `Daily consolidated backup - ${instantBackupsToday.length} instant backups merged`
+      };
+
+      // Save consolidated backup
+      const consolidatedFileName = `vouches_daily_${todayStr}.json`;
+      const consolidatedPath = join(vouchesBackupDir, consolidatedFileName);
+      writeFileSync(consolidatedPath, JSON.stringify(consolidatedBackup, null, 2), 'utf-8');
+      
+      console.log(`[BACKUP] ✅ Daily consolidated backup created: ${consolidatedFileName}`);
+      console.log(`[BACKUP] 📊 Total vouches in consolidated backup: ${consolidatedBackup.totalVouches}`);
+      console.log(`[BACKUP] 📦 Instant backups consolidated: ${instantBackupsToday.length}`);
+
+      // Delete instant backups after consolidation (keep only the consolidated one)
+      let deletedCount = 0;
+      for (const instantFile of instantBackupsToday) {
+        try {
+          const instantPath = join(vouchesBackupDir, instantFile);
+          unlinkSync(instantPath);
+          deletedCount++;
+        } catch (deleteError) {
+          console.error(`[BACKUP] Error deleting instant backup ${instantFile}:`, deleteError.message);
+        }
+      }
+
+      console.log(`[BACKUP] 🗑️ Deleted ${deletedCount} instant backup files after consolidation`);
+
+    } catch (consolidateError) {
+      console.error('[BACKUP] Error consolidating daily vouches backups:', consolidateError.message);
     }
   }
 
