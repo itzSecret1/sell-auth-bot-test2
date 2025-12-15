@@ -844,206 +844,301 @@ export class Bot {
   }
 
   async handleTicketButton(interaction) {
-    const customId = interaction.customId;
+    try {
+      const customId = interaction.customId;
 
-    // Crear ticket desde panel
-    if (customId.startsWith('ticket_')) {
-      const category = customId.replace('ticket_', '');
-      if (['replaces', 'faq', 'purchase', 'partner', 'partner_manager'].includes(category)) {
-        // Si es "replaces", pedir invoice ID primero
-        if (category === 'replaces') {
-          const modal = new ModalBuilder()
-            .setCustomId(`ticket_replaces_modal`)
-            .setTitle('Replaces Ticket - Invoice Required');
+      // Crear ticket desde panel
+      if (customId.startsWith('ticket_')) {
+        const category = customId.replace('ticket_', '');
+        if (['replaces', 'faq', 'purchase', 'partner', 'partner_manager'].includes(category)) {
+          try {
+            // Si es "replaces", pedir invoice ID primero
+            if (category === 'replaces') {
+              const modal = new ModalBuilder()
+                .setCustomId(`ticket_replaces_modal`)
+                .setTitle('Replaces Ticket - Invoice Required');
 
-          const invoiceInput = new TextInputBuilder()
-            .setCustomId('invoice_id')
-            .setLabel('Invoice ID (Required)')
-            .setStyle(TextInputStyle.Short)
-            .setPlaceholder('Example: 6555d345ec623-0000008535737')
-            .setRequired(true)
-            .setMaxLength(30);
+              const invoiceInput = new TextInputBuilder()
+                .setCustomId('invoice_id')
+                .setLabel('Invoice ID (Required)')
+                .setStyle(TextInputStyle.Short)
+                .setPlaceholder('Example: 6555d345ec623-0000008535737')
+                .setRequired(true)
+                .setMaxLength(30);
 
-          const proofInput = new TextInputBuilder()
-            .setCustomId('proof_note')
-            .setLabel('Proof (Optional - Upload image after)')
-            .setStyle(TextInputStyle.Paragraph)
-            .setPlaceholder('You can upload proof image after ticket creation...')
-            .setRequired(false)
-            .setMaxLength(500);
+              const proofInput = new TextInputBuilder()
+                .setCustomId('proof_note')
+                .setLabel('Proof (Optional - Upload image after)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setPlaceholder('You can upload proof image after ticket creation...')
+                .setRequired(false)
+                .setMaxLength(500);
 
-          const actionRow1 = new ActionRowBuilder().addComponents(invoiceInput);
-          const actionRow2 = new ActionRowBuilder().addComponents(proofInput);
-          modal.addComponents(actionRow1, actionRow2);
+              const actionRow1 = new ActionRowBuilder().addComponents(invoiceInput);
+              const actionRow2 = new ActionRowBuilder().addComponents(proofInput);
+              modal.addComponents(actionRow1, actionRow2);
 
-          await interaction.showModal(modal);
+              await interaction.showModal(modal).catch(async (error) => {
+                console.error('[TICKET] Error showing modal:', error);
+                if (!interaction.deferred && !interaction.replied) {
+                  await interaction.reply({
+                    content: '❌ An error occurred. Please try again.',
+                    ephemeral: true
+                  }).catch(() => {});
+                }
+              });
+              return;
+            }
+            
+            // Para otras categorías, crear directamente
+            if (!interaction.deferred && !interaction.replied) {
+              await interaction.deferReply({ ephemeral: true }).catch(() => {});
+            }
+            
+            const guild = interaction.guild;
+            const user = interaction.user;
+            
+            const result = await TicketManager.createTicket(guild, user, category);
+            
+            if (interaction.deferred) {
+              await interaction.editReply({
+                content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
+              }).catch(() => {});
+            } else {
+              await interaction.reply({
+                content: `✅ Ticket ${result.ticketId} created in ${result.channel}`,
+                ephemeral: true
+              }).catch(() => {});
+            }
+          } catch (error) {
+            console.error('[TICKET] Error creating ticket from panel:', error);
+            if (!interaction.deferred && !interaction.replied) {
+              await interaction.reply({
+                content: '❌ An error occurred while creating the ticket. Please try again.',
+                ephemeral: true
+              }).catch(() => {});
+            } else if (interaction.deferred) {
+              await interaction.editReply({
+                content: '❌ An error occurred while creating the ticket. Please try again.'
+              }).catch(() => {});
+            }
+          }
           return;
         }
-        
-        // Para otras categorías, crear directamente
-        await interaction.deferReply({ ephemeral: true });
-        
-        const guild = interaction.guild;
-        const user = interaction.user;
-        
-        const result = await TicketManager.createTicket(guild, user, category);
-        
-        await interaction.editReply({
-          content: `✅ Ticket ${result.ticketId} created in ${result.channel}`
-        });
-        return;
       }
-    }
 
     // Reclamar ticket
     if (customId.startsWith('ticket_claim_')) {
-      // Verificar que el usuario tenga rol de staff o admin
-      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
-      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
-      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
-      
-      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
-      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
-      
-      if (!hasStaffRole && !hasAdminRole) {
-        await interaction.reply({
-          content: '❌ Only staff can claim tickets',
-          ephemeral: true
-        });
-        return;
-      }
+      try {
+        // Verificar que el usuario tenga rol de staff o admin
+        const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+        const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+        const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+        
+        const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+        const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+        
+        if (!hasStaffRole && !hasAdminRole) {
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({
+              content: '❌ Only staff can claim tickets',
+              ephemeral: true
+            }).catch(() => {});
+          } else {
+            await interaction.reply({
+              content: '❌ Only staff can claim tickets',
+              ephemeral: true
+            }).catch(() => {});
+          }
+          return;
+        }
 
-      const ticketId = customId.replace('ticket_claim_', '');
-      console.log(`[TICKET] Claim button clicked for ticket: ${ticketId}`);
-      
-      const ticket = TicketManager.getTicket(ticketId);
-      
-      if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
-        await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}`,
-          ephemeral: true
-        });
-        return;
-      }
-      
-      console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
+        const ticketId = customId.replace('ticket_claim_', '');
+        console.log(`[TICKET] Claim button clicked for ticket: ${ticketId}`);
+        
+        const ticket = TicketManager.getTicket(ticketId);
+        
+        if (!ticket) {
+          console.warn(`[TICKET] Ticket not found: ${ticketId}`);
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({
+              content: `❌ Ticket not found: ${ticketId}`,
+              ephemeral: true
+            }).catch(() => {});
+          } else {
+            await interaction.reply({
+              content: `❌ Ticket not found: ${ticketId}`,
+              ephemeral: true
+            }).catch(() => {});
+          }
+          return;
+        }
+        
+        console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
 
-      await interaction.deferUpdate();
-      const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
-      
-      if (!result.success) {
-        await interaction.followUp({
-          content: result.message,
-          ephemeral: true
-        });
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferUpdate().catch(() => {});
+        }
+        
+        const result = await TicketManager.claimTicket(interaction.guild, ticketId, interaction.member);
+        
+        if (!result.success) {
+          await interaction.followUp({
+            content: result.message,
+            ephemeral: true
+          }).catch(() => {});
+        }
+      } catch (error) {
+        console.error('[TICKET] Error handling claim button:', error);
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.reply({
+            content: '❌ An error occurred while claiming the ticket. Please try again.',
+            ephemeral: true
+          }).catch(() => {});
+        } else {
+          await interaction.followUp({
+            content: '❌ An error occurred while claiming the ticket. Please try again.',
+            ephemeral: true
+          }).catch(() => {});
+        }
       }
       return;
     }
 
     // Cerrar ticket
     if (customId.startsWith('ticket_close_')) {
-      const ticketId = customId.replace('ticket_close_', '');
-      console.log(`[TICKET] Close button clicked for ticket: ${ticketId}`);
-      
-      const ticket = TicketManager.getTicket(ticketId);
-      
-      if (!ticket) {
-        console.warn(`[TICKET] Ticket not found: ${ticketId}`);
-        await interaction.reply({
-          content: `❌ Ticket not found: ${ticketId}`,
-          ephemeral: true
-        });
-        return;
+      try {
+        const ticketId = customId.replace('ticket_close_', '');
+        console.log(`[TICKET] Close button clicked for ticket: ${ticketId}`);
+        
+        const ticket = TicketManager.getTicket(ticketId);
+        
+        if (!ticket) {
+          console.warn(`[TICKET] Ticket not found: ${ticketId}`);
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({
+              content: `❌ Ticket not found: ${ticketId}`,
+              ephemeral: true
+            }).catch(() => {});
+          } else {
+            await interaction.reply({
+              content: `❌ Ticket not found: ${ticketId}`,
+              ephemeral: true
+            }).catch(() => {});
+          }
+          return;
+        }
+        
+        console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
+
+        // Verificar que el usuario tenga rol de staff/admin O sea el creador del ticket
+        const guildConfig = GuildConfig.getConfig(interaction.guild.id);
+        const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
+        const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
+        
+        const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
+        const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
+        const isTicketCreator = ticket.userId === interaction.user.id;
+        
+        if (!hasStaffRole && !hasAdminRole && !isTicketCreator) {
+          if (interaction.deferred || interaction.replied) {
+            await interaction.followUp({
+              content: '❌ Only staff or the ticket creator can close tickets',
+              ephemeral: true
+            }).catch(() => {});
+          } else {
+            await interaction.reply({
+              content: '❌ Only staff or the ticket creator can close tickets',
+              ephemeral: true
+            }).catch(() => {});
+          }
+          return;
+        }
+
+        // Si es el creador del ticket, cerrar directamente sin reviews
+        if (isTicketCreator && !hasStaffRole && !hasAdminRole) {
+          // Mostrar modal para razón (obligatoria)
+          const modal = new ModalBuilder()
+            .setCustomId(`ticket_close_modal_${ticketId}`)
+            .setTitle('Close Ticket');
+
+          const reasonInput = new TextInputBuilder()
+            .setCustomId('close_reason')
+            .setLabel('Reason for closing (required)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Explain why you are closing this ticket...')
+            .setRequired(true)
+            .setMaxLength(500);
+
+          const actionRow = new ActionRowBuilder().addComponents(reasonInput);
+          modal.addComponents(actionRow);
+
+          await interaction.showModal(modal).catch(() => {});
+          return;
+        }
+
+        // Si es owner/admin, puede cerrar sin razón (pero puede ponerla opcionalmente)
+        if (hasAdminRole) {
+          // Owner puede cerrar directamente sin razón, pero puede ponerla opcionalmente
+          const modal = new ModalBuilder()
+            .setCustomId(`ticket_close_modal_${ticketId}`)
+            .setTitle('Close Ticket');
+
+          const reasonInput = new TextInputBuilder()
+            .setCustomId('close_reason')
+            .setLabel('Reason for closing (optional)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Optional: Explain why you are closing this ticket...')
+            .setRequired(false)
+            .setMaxLength(500);
+
+          const actionRow = new ActionRowBuilder().addComponents(reasonInput);
+          modal.addComponents(actionRow);
+
+          await interaction.showModal(modal).catch(() => {});
+          return;
+        }
+
+        // Si es staff, necesita razón obligatoria
+        if (hasStaffRole) {
+          const modal = new ModalBuilder()
+            .setCustomId(`ticket_close_modal_${ticketId}`)
+            .setTitle('Close Ticket');
+
+          const reasonInput = new TextInputBuilder()
+            .setCustomId('close_reason')
+            .setLabel('Reason for closing (required)')
+            .setStyle(TextInputStyle.Paragraph)
+            .setPlaceholder('Explain why you are closing this ticket...')
+            .setRequired(true)
+            .setMaxLength(500);
+
+          const actionRow = new ActionRowBuilder().addComponents(reasonInput);
+          modal.addComponents(actionRow);
+
+          await interaction.showModal(modal).catch(() => {});
+          return;
+        }
+
+        // Si no necesita razón, iniciar proceso de cierre
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.deferUpdate().catch(() => {});
+        }
+        await TicketManager.initiateClose(interaction.guild, ticketId, interaction.member);
+      } catch (error) {
+        console.error('[TICKET] Error handling close button:', error);
+        if (!interaction.deferred && !interaction.replied) {
+          await interaction.reply({
+            content: '❌ An error occurred while closing the ticket. Please try again.',
+            ephemeral: true
+          }).catch(() => {});
+        } else {
+          await interaction.followUp({
+            content: '❌ An error occurred while closing the ticket. Please try again.',
+            ephemeral: true
+          }).catch(() => {});
+        }
       }
-      
-      console.log(`[TICKET] Found ticket: ${ticket.id} for channel ${ticket.channelId}`);
-
-      // Verificar que el usuario tenga rol de staff/admin O sea el creador del ticket
-      const guildConfig = GuildConfig.getConfig(interaction.guild.id);
-      const staffRoleId = guildConfig?.staffRoleId || config.BOT_STAFF_ROLE_ID;
-      const adminRoleId = guildConfig?.adminRoleId || config.BOT_ADMIN_ROLE_ID;
-      
-      const hasStaffRole = staffRoleId && interaction.member.roles.cache.has(staffRoleId);
-      const hasAdminRole = adminRoleId && interaction.member.roles.cache.has(adminRoleId);
-      const isTicketCreator = ticket.userId === interaction.user.id;
-      
-      if (!hasStaffRole && !hasAdminRole && !isTicketCreator) {
-        await interaction.reply({
-          content: '❌ Only staff or the ticket creator can close tickets',
-          ephemeral: true
-        });
-        return;
-      }
-
-      // Si es el creador del ticket, cerrar directamente sin reviews
-      if (isTicketCreator && !hasStaffRole && !hasAdminRole) {
-        // Mostrar modal para razón (obligatoria)
-        const modal = new ModalBuilder()
-          .setCustomId(`ticket_close_modal_${ticketId}`)
-          .setTitle('Close Ticket');
-
-        const reasonInput = new TextInputBuilder()
-          .setCustomId('close_reason')
-          .setLabel('Reason for closing (required)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Explain why you are closing this ticket...')
-          .setRequired(true)
-          .setMaxLength(500);
-
-        const actionRow = new ActionRowBuilder().addComponents(reasonInput);
-        modal.addComponents(actionRow);
-
-        await interaction.showModal(modal);
-        return;
-      }
-
-      // Si es owner/admin, puede cerrar sin razón (pero puede ponerla opcionalmente)
-      if (hasAdminRole) {
-        // Owner puede cerrar directamente sin razón, pero puede ponerla opcionalmente
-        const modal = new ModalBuilder()
-          .setCustomId(`ticket_close_modal_${ticketId}`)
-          .setTitle('Close Ticket');
-
-        const reasonInput = new TextInputBuilder()
-          .setCustomId('close_reason')
-          .setLabel('Reason for closing (optional)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Optional: Explain why you are closing this ticket...')
-          .setRequired(false)
-          .setMaxLength(500);
-
-        const actionRow = new ActionRowBuilder().addComponents(reasonInput);
-        modal.addComponents(actionRow);
-
-        await interaction.showModal(modal);
-        return;
-      }
-
-      // Si es staff, necesita razón obligatoria
-      if (hasStaffRole) {
-        const modal = new ModalBuilder()
-          .setCustomId(`ticket_close_modal_${ticketId}`)
-          .setTitle('Close Ticket');
-
-        const reasonInput = new TextInputBuilder()
-          .setCustomId('close_reason')
-          .setLabel('Reason for closing (required)')
-          .setStyle(TextInputStyle.Paragraph)
-          .setPlaceholder('Explain why you are closing this ticket...')
-          .setRequired(true)
-          .setMaxLength(500);
-
-        const actionRow = new ActionRowBuilder().addComponents(reasonInput);
-        modal.addComponents(actionRow);
-
-        await interaction.showModal(modal);
-        return;
-      }
-
-      // Si no necesita razón, iniciar proceso de cierre
-      await interaction.deferUpdate();
-      await TicketManager.initiateClose(interaction.guild, ticketId, interaction.member);
       return;
     }
 
@@ -1081,6 +1176,20 @@ export class Bot {
         }).catch(() => {});
       }
       return;
+    }
+    } catch (error) {
+      console.error('[TICKET] Error in handleTicketButton:', error);
+      // Try to respond if interaction hasn't been handled
+      if (!interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.reply({
+            content: '❌ An error occurred. Please try again or use the `/close-ticket` command.',
+            ephemeral: true
+          });
+        } catch (replyError) {
+          console.error('[TICKET] Failed to send error message:', replyError);
+        }
+      }
     }
   }
 
