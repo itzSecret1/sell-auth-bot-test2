@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import path from 'path';
 
-const REPO_URL = 'https://github.com/itzSecret1/sell-auth-bot-test';
+const REPO_URL = 'https://github.com/itzSecret1/sell-auth-bot-test2';
 const WORKSPACE_DIR = process.cwd();
 const IGNORED_PATHS = new Set(['.git', 'node_modules', '.cache', 'attached_assets', '.replit', '.env', '*.log']);
 
